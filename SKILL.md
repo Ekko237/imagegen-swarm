@@ -1,6 +1,6 @@
 ---
 name: image-gen
-description: Generate images and videos with two engines the user already owns — Codex CLI's built-in image_gen (images; uses the Codex/ChatGPT login, no OpenAI API key) and Dreamina/jimeng (images AND videos, via the logged-in `dreamina` CLI). Use whenever the user asks to generate, create, draw, or make an image or a video — "生成图片", "画图", "出图", "生成视频", "出个视频", "text to image/video", reference-image edits, upscales — or names "codex" or "jimeng"/"dreamina" as the engine. Do NOT use for editing existing local files without generation, or for non-generation tasks.
+description: Generate images and videos with two engines the user already owns — Codex CLI's built-in image_gen (images; uses the Codex/ChatGPT login, no OpenAI API key) and Dreamina/jimeng (images AND videos, via the logged-in `dreamina` CLI). Use whenever the user asks to generate, create, draw, or make an image or a video — "text to image", "text to video", "draw me a…", reference-image edits, upscales — or names "codex" or "jimeng"/"dreamina" as the engine. Do NOT use for editing existing local files without generation, or for non-generation tasks.
 ---
 
 # image-gen — Codex + jimeng image & video generation
