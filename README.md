@@ -95,7 +95,7 @@ image-gen/
 
 ## Credits
 
-The codex wrapper follows the approach of the `baoyu-image-gen` codex-imagegen wrapper (spawn `codex exec` with a strict instruction), rewritten here as one dependency-free Node file. jimeng support wraps the official `dreamina` CLI.
+The codex wrapper follows the approach of the `baoyu-image-gen` codex-imagegen wrapper (spawn `codex exec` with a strict instruction), rewritten here as one dependency-free Node file — see [NOTICE](NOTICE) for the upstream MIT attribution. jimeng support wraps the official `dreamina` CLI.
 
 ## License
 
