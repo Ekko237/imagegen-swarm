@@ -1,0 +1,18 @@
+# Generated media and default wrapper output dirs
+jimeng-out-*/
+imgs/
+vids/
+out/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.mov
+
+# Local prompt scratch files
+prompt*.txt
+
+node_modules/
+.DS_Store
+Thumbs.db
