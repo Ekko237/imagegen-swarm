@@ -138,19 +138,26 @@ def rename(page, chat, title):
 
 
 def delete(page, chat):
-    row_menu(page, chat, "Delete")
-    confirm = page.get_by_role("button", name="Delete", exact=True)
-    if confirm.count():
-        confirm.last.click()
-    # 同一浏览器里侧聊天列表要过十几秒才刷新；直接打开它的地址，显示 Something went wrong、没有消息就是删掉了
-    deadline = time.monotonic() + 45
-    while True:
-        page.goto(f"{BASE}/thread/{chat}", wait_until="domcontentloaded")
-        page.wait_for_timeout(3000)
-        if not messages(page) and "Something went wrong" in page.evaluate("document.body.innerText"):
-            return
-        if time.monotonic() > deadline:
-            raise RuntimeError(f"Muse 侧聊天 {chat} 删不掉")
+    # 还在回答的侧聊天删不掉：先点 Stop 等它停下；同一浏览器里侧聊天列表要过十几秒才刷新，
+    # 所以直接打开它的地址核对，显示 Something went wrong、没有消息就是删掉了；没删掉就再点一次删除
+    for _ in range(2):
+        open_url(page, f"{BASE}/thread/{chat}")
+        stop = page.get_by_role("button", name="Stop", exact=True)
+        if stop.count():
+            stop.click()
+            wait_for(page, lambda: not busy(page), 30, "Muse 没停下")
+        row_menu(page, chat, "Delete")
+        confirm = page.get_by_role("button", name="Delete", exact=True)
+        if confirm.count():
+            confirm.last.click()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(3000)
+            page.goto(f"{BASE}/thread/{chat}", wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)
+            if not messages(page) and "Something went wrong" in page.evaluate("document.body.innerText"):
+                return
+    raise RuntimeError(f"Muse 侧聊天 {chat} 删不掉")
 
 
 COMPOSER = r'''() => {

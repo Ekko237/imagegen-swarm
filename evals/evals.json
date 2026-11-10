@@ -137,6 +137,47 @@
         "status": "ok"
       },
       "content": "冒热气的陶瓷咖啡杯，极简扁平插画"
+    },
+    {
+      "id": "batch-mixed",
+      "engine": "batch",
+      "jobs": [
+        {
+          "id": "b-lemon",
+          "prompt": "A single lemon slice on blue background, flat illustration",
+          "aspect": "1:1"
+        },
+        {
+          "id": "b-kite",
+          "prompt": "A red kite in a clear sky, minimal flat illustration",
+          "aspect": "3:4"
+        },
+        {
+          "id": "b-whale",
+          "prompt": "A blue whale swimming in deep ocean, low poly",
+          "aspect": "16:9"
+        },
+        {
+          "id": "b-owl",
+          "prompt": "A cute owl on a branch, children's book illustration",
+          "aspect": "1:1"
+        },
+        {
+          "id": "b-lamp",
+          "prompt": "A vintage desk lamp glowing at night, oil painting",
+          "aspect": "4:3"
+        },
+        {
+          "id": "b-robot",
+          "prompt": "A tiny friendly robot holding a flower, 3D render",
+          "aspect": "1:1"
+        }
+      ],
+      "checks": {
+        "status": "ok",
+        "min_engines": 2
+      },
+      "content": "6 张图各自画对：柠檬片、风筝、鲸鱼、猫头鹰、台灯、小机器人"
     }
   ]
 }

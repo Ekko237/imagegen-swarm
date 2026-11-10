@@ -27,7 +27,15 @@ node scripts/check.mjs
 
 ## Usage
 
-Ask your agent for an image or a video and the skill triggers. To call a script directly:
+Ask your agent for an image or a video and the skill triggers. For a batch, write a job list and let every engine grab work at once:
+
+```bash
+echo '[{"id":"apple","prompt":"a red apple on a white table","aspect":"1:1"},
+       {"id":"kite","prompt":"a red kite in a clear sky","aspect":"3:4"}]' > jobs.json
+node scripts/batch.mjs --jobs jobs.json --out out/
+```
+
+Or call one engine directly:
 
 ```bash
 node scripts/gemini-image.mjs --prompt "a red apple on a white table" --out apple.png --aspect 1:1
@@ -46,7 +54,7 @@ node evals/run.mjs out/            # all fixed tasks
 node evals/run.mjs out/ --only gemini-t2i,grok-t2i
 ```
 
-The runner checks status, aspect ratio, prompt passthrough and Muse cleanup, and writes `results.json` for a judge to score each image with the rubric in `evals/evals.json`.
+The runner checks status, aspect ratio, prompt passthrough, Muse cleanup and a mixed batch, and writes `results.json` for a judge to score each image with the rubric in `evals/evals.json`.
 
 ## Layout
 
@@ -55,7 +63,8 @@ image-gen/
 ├─ SKILL.md            skill definition and engine guide
 ├─ SETUP.md            install and login per engine
 ├─ AGENTS.md           entry point for an agent handed this repo
-├─ scripts/            codex-image.mjs, grok-image.mjs, gemini-image.mjs, muse-image.py, lovart.mjs, check.mjs
+├─ scripts/            batch.mjs (work-stealing across engines), codex-image.mjs, grok-image.mjs,
+│                      gemini-image.mjs, muse-image.py, lovart.mjs, check.mjs
 ├─ references/         codex.md, lovart.md
 └─ evals/              evals.json (tasks + rubric), run.mjs
 ```

@@ -36,6 +36,23 @@ async function main() {
   const produced = {}, results = [];
   for (const task of spec.tasks) {
     if (only && !only.has(task.id)) continue;
+    if (task.engine === 'batch') {
+      // 抢活：清单交给 batch.mjs，查全部出完、比例都对（batch 自己核对）、至少几家引擎接到活
+      const dir = path.join(out, task.id);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'jobs.json'), JSON.stringify(task.jobs));
+      const started = Date.now();
+      const r = await exec('node', [path.join(here, '..', 'scripts', 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out')]);
+      const summary = JSON.parse(r.stdout.trim().split('\n').at(-1));
+      const used = Object.values(summary.by_engine ?? {}).filter(n => n > 0).length;
+      const failed = [];
+      if (summary.status !== task.checks.status) failed.push(`status ${summary.status}，失败 ${summary.failed} 张：${summary.reason ?? ''}`);
+      if (used < task.checks.min_engines) failed.push(`只有 ${used} 家引擎接到活：${JSON.stringify(summary.by_engine)}`);
+      results.push({ id: task.id, engine: 'batch', pass: !failed.length, failed, seconds: Math.round((Date.now() - started) / 1000),
+        file: path.join(dir, 'out'), size: JSON.stringify(summary.by_engine), content: task.content });
+      console.log(JSON.stringify(results.at(-1)));
+      continue;
+    }
     const file = path.join(out, `${task.id}.png`);
     const args = task.args.map(a => a.replace(/^\{(.+)\}$/, (_, id) => {
       if (!produced[id]) throw new Error(`${task.id} needs ${id} to run first`);

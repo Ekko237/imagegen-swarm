@@ -5,6 +5,23 @@ description: Generate images, reference edits and videos with Codex, Grok Imagin
 
 # image-gen
 
+The core is work-stealing: write the images you need as a job list and hand it to `batch.mjs`. All five engines start at once with a few lanes each, and whichever lane is free takes the next image it can handle, so every engine's quota is used and the batch finishes as fast as possible. A single image goes through `batch.mjs` too: the first engine in line takes it, and if that engine is out of quota the next one does.
+
+```bash
+node scripts/batch.mjs --jobs jobs.json --out out/
+```
+
+`jobs.json` is an array of `{"id": "cat", "prompt": "...", "aspect": "1:1", "ref": ["a.png"], "video": false, "engine": "gemini"}`; only `id` and `prompt` are required. `ref` paths are relative to the job file, and `engine` pins a job to one engine. Output goes to `out/<id>.png` (`.mp4` for video); existing files are skipped, so an interrupted run resumes where it stopped.
+
+- Lanes: gemini, codex, grok and lovart get 2 each and muse 1, and they take work in that order. `--engines` limits the engines; `--lanes gemini=3,muse=0` changes lane counts.
+- An engine that reports exhausted quota, no login or no install is shut down, and the image it held goes back to the queue.
+- If a job sets an aspect ratio, an image whose ratio is off by more than 3% is discarded and redone by another engine.
+- A failed image (refusal, timeout, …) is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). An image no engine can take counts as failed.
+- Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and `out/batch-results.json` records which engine made each image and how long it took. Exit code is non-zero if anything failed.
+- When the user names an engine, run only that one with `--engines`.
+
+## Engines
+
 | Engine | Script | Can do | Aspect ratio | Time per image | Quota |
 |---|---|---|---|---|---|
 | codex | `codex-image.mjs` | image, reference images | `--aspect`, chosen by the model | ~30 s | Codex plan usage |
@@ -13,22 +30,7 @@ description: Generate images, reference edits and videos with Codex, Grok Imagin
 | muse | `muse-image.py` | image, reference images | `--aspect`, written into the task | 1–2 min | Muse weekly limit |
 | lovart | `lovart.mjs` | image, reference images | `--aspect`, written into the prompt | ~35 s | Lovart credits |
 
-All scripts live in `scripts/` (run `.mjs` with node, `.py` with python3). Shared flags: `--prompt` or `--prompt-file`, `--out <png>`, repeatable `--ref`, `--timeout`. Each call makes one image, prints one JSON line, and exits non-zero on failure. Scripts never switch engines on their own.
-
-```bash
-node scripts/gemini-image.mjs --prompt "an orange cat on a windowsill, flat illustration" --out cat.png --aspect 1:1
-node scripts/gemini-image.mjs --prompt "the same cat, now at night" --ref cat.png --out night.png --aspect 16:9
-```
-
-## Choosing an engine
-
-If the user or the caller names an engine, use it. Otherwise:
-
-- Video: grok.
-- Editing from a reference with an exact aspect ratio: gemini.
-- Anything else: the first ready engine in the order gemini → codex → grok → lovart → muse (`scripts/check.mjs` shows which are ready).
-
-If an engine reports that its quota is used up or its login has expired, move to the next one in that order and say which engine produced the result. Report any other failure, such as a content-policy refusal, without switching.
+Each engine script also works on its own (run `.mjs` with node, `.py` with python3). Shared flags: `--prompt` or `--prompt-file`, `--out <png>`, repeatable `--ref`, `--timeout`; one image per call, one JSON line, non-zero exit on failure. `batch.mjs` builds these flags from each job: an aspect ratio only goes to engines that truly support it (gemini and muse seven ratios, grok five), jobs with too many references skip engines with a lower limit (gemini 3, grok 1), and video only goes to grok.
 
 ## Engine notes
 
