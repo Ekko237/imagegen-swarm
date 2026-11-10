@@ -97,6 +97,10 @@ async function resolveCodex(explicit) {
   fail("codex_not_installed", "codex CLI not found: not a working `codex` on PATH, not in Codex.app (macOS), not under ~/AppData/Local/OpenAI/Codex/bin (Windows). Install @openai/codex or the Codex app, then `codex login`. If a broken npm shim is shadowing a good binary, point at it with --codex <path> or $CODEX_BIN.");
 }
 
+// image_gen 没有尺寸参数，画幅只由提示词决定：把比例写进交给它的提示词末尾
+const FORMATS = { "1:1": "Square 1:1 image.", "3:2": "Landscape 3:2 image.", "2:3": "Portrait 2:3 image.", "4:3": "Landscape 4:3 image.",
+  "3:4": "Portrait 3:4 image.", "16:9": "Wide landscape 16:9 image.", "9:16": "Tall portrait 9:16 image.", "2.35:1": "Cinematic ultra-wide 2.35:1 image." };
+
 function buildInstruction(prompt, o) {
   const refHint = o.refs.length > 0
     ? `\nREFERENCE IMAGES (attached above): ${o.refs.length} image(s) provided for style/composition guidance.\n`
@@ -106,14 +110,14 @@ referred to as image_gen). You MUST call it before doing anything else.
 
 TASK: Generate an image with the spec below, then save to disk.
 
-PROMPT:
-${prompt}
+IMAGE_GEN PROMPT (pass it to image_gen exactly as written, character for character):
+${prompt.trim()}
+${FORMATS[o.aspect] ?? `Aspect ratio ${o.aspect}.`}
 
-ASPECT RATIO: ${o.aspect}
 OUTPUT PATH: ${o.out}
 ${refHint}
 STEPS:
-1. Call image_gen with the prompt and aspect ratio above${o.refs.length > 0 ? " (using the attached reference images for guidance)" : ""}.
+1. Call image_gen once with the IMAGE_GEN PROMPT above as its prompt, unchanged${o.refs.length > 0 ? ", passing the attached reference images" : ""}.
 2. Move or copy ONLY the image produced by that image_gen call from Codex default location ($CODEX_HOME/generated_images/...) to: ${o.out}
 3. Verify with: ls -la ${o.out}
 4. Reply with ONLY this JSON line (no markdown fences, no other text):

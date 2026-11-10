@@ -6,7 +6,7 @@
 
 | Flag | Meaning |
 |---|---|
-| `--aspect` | `1:1` (default), `16:9`, `9:16`, `4:3`, `2.35:1`; the model picks the pixel size |
+| `--aspect` | `1:1` (default), `3:2`, `2:3`, `4:3`, `3:4`, `16:9`, `9:16`, `2.35:1`. `image_gen` has no size parameter, so the script appends the format to the prompt it hands over (e.g. "Square 1:1 image.") and asks Codex to pass it on unchanged; measured outputs: 1:1 → 1254×1254 or 1024×1024, 4:3 → 1448×1086, 16:9 → 1672×941 |
 | `--model` / `--effort` | Codex model and reasoning effort, default `gpt-6-luna` / `low`; it only has to call the image tool |
 | `--sandbox` | Default `workspace-write` (only the output folder is writable); `read-only` cannot work |
 | `--escalate-sandbox` | If the sandbox blocks the write, retry the remaining attempts with `danger-full-access`; only with the user's consent |
