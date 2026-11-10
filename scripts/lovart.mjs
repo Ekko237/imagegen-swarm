@@ -5,6 +5,11 @@ import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+// 图片转换交给跨平台的 imgtool.py（Pillow）
+const PY = process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+const IMGTOOL = path.join(path.dirname(fileURLToPath(import.meta.url)), "imgtool.py");
 
 let JSON_MODE = false;
 
@@ -137,10 +142,10 @@ async function main() {
               fail("succeeded but no image artifact was downloaded", "no_image"); }
 
   await mkdir(path.dirname(path.resolve(o.out)), { recursive: true });
-  // 模型可能交 JPG / WebP：统一用 sips 转成真正的 PNG
-  const conv = await run("sips", ["-s", "format", "png", path.resolve(got.local_path), "--out", o.out], 60);
+  // 模型可能交 JPG / WebP：统一转成真正的 PNG
+  const conv = await run(PY, [IMGTOOL, "png", path.resolve(got.local_path), o.out], 60);
   await rm(tmp, { recursive: true, force: true });
-  if (conv.code !== 0) fail(`sips could not convert the Lovart artifact to PNG: ${conv.err.trim().slice(0, 200)}`);
+  if (conv.code !== 0) fail(`could not convert the Lovart artifact to PNG: ${conv.err.trim().slice(0, 200)}`);
 
   const s = await stat(o.out);
   const result = { status: "ok", provider: "lovart", path: o.out, bytes: s.size,

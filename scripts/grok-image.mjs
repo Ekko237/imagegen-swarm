@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, copyFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function parse(argv) {
   const o = { ratio: '1:1', video: false, timeout: 600000 };
@@ -53,6 +54,9 @@ function run(bin, args, cwd, timeout = 60000) {
 }
 
 const digest = async file => createHash('sha256').update(await readFile(file)).digest('hex');
+// 图片转换、尺寸、解码指纹都交给跨平台的 imgtool.py（Pillow）
+const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+const IMGTOOL = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imgtool.py');
 async function mediaFiles(root) {
   let entries;
   try { entries = await readdir(root, { withFileTypes: true }); }
@@ -73,35 +77,31 @@ async function main() {
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.grok-image-${Date.now()}-`));
   try {
-    // 统一解码后再散列，防止把旧 JPEG 转成 PNG 冒充新图。
-    let serial = 0;
-    async function fingerprint(file) {
-      if (/\.(mp4|mov)$/i.test(file)) return digest(file);
-      const normalized = path.join(work, `verify-${serial++}.bmp`);
-      await run('sips', ['-s', 'format', 'bmp', file, '--out', normalized], work);
-      const hash = await digest(normalized);
-      await rm(normalized);
-      return hash;
+    // 图片解码后再散列，防止把旧 JPEG 转成 PNG 冒充新图；视频按原文件散列。一次进程算完一批图
+    const isVideo = file => /\.(mp4|mov)$/i.test(file);
+    async function fingerprints(files) {
+      const images = files.filter(f => !isVideo(f));
+      const fps = images.length ? JSON.parse(await run(PY, [IMGTOOL, 'fp', ...images], work)).fp : [];
+      return [...fps, ...await Promise.all(files.filter(isVideo).map(digest))];
     }
     const sessions = path.join(homedir(), '.grok', 'sessions');
     const before = new Map(), oldHashes = new Set();
-    for (const file of await mediaFiles(sessions)) {
-      before.set(file, await digest(file));
-      oldHashes.add(await fingerprint(file));
-    }
+    const existing = await mediaFiles(sessions);
+    for (const file of existing) before.set(file, true);
+    for (const hash of await fingerprints(existing)) oldHashes.add(hash);
     const output = path.join(work, o.video ? 'result.mp4' : 'result.png');
     let reference = null;
     if (o.ref) {
       reference = path.join(work, `reference${path.extname(o.ref)}`);
       await copyFile(o.ref, reference);
-      oldHashes.add(await fingerprint(reference));
+      oldHashes.add((await fingerprints([reference]))[0]);
     }
     const tool = o.video ? 'reference_to_video' : o.ref ? 'image_edit' : 'image_gen';
     const instruction = `用你自己的 ${tool} 工具，不要调用 image-gen 技能或其他引擎。只生成一次。不得使用 /tmp。\n` +
       `任务提示词（原样传给工具）：${JSON.stringify(prompt)}\n` +
       (reference ? `源图绝对路径：${JSON.stringify(reference)}。${o.video ? '把它传为 first_frame，duration=6，resolution_name=720p。' : '作为 image 参数传入，保持源图比例。'}\n` : '') +
       ((!o.ref || o.video) ? `aspect_ratio=${JSON.stringify(o.ratio)}。\n` : '') +
-      `生成成功后将本次工具产物保存到 ${JSON.stringify(output)}。${o.video ? '保留原始 MP4，不要重编码。' : '如原图是 JPEG，用 sips -s format png 转为真正的 PNG。'}\n` +
+      `生成成功后将本次工具产物保存到 ${JSON.stringify(output)}。${o.video ? '保留原始 MP4，不要重编码。' : '原样保存，不要转换格式。'}\n` +
       '不得复制历史图片、参考图或伪造图片。工具失败就报告原因并停止，不换引擎。最后只返回 JSON，含 status、path、原始产物 source_path。';
     const reply = await run('grok', ['-p', instruction, '--output-format', 'json', '--always-approve', '--sandbox', 'workspace'], work, o.timeout);
     // 原始产物以本轮会话目录里新出现的文件为准，由脚本自己转换，不信任 Grok 转好的副本
@@ -117,9 +117,9 @@ async function main() {
     }
     if (!fresh.length) throw new Error(`no newly generated ${o.video ? 'video' : 'image'} in this Grok session ${sessionId}; reply: ${reply.slice(-3000)}`);
     const source = fresh.sort((a, b) => b.mtime - a.mtime)[0].file;
-    if (oldHashes.has(await fingerprint(source))) throw new Error('stale output: matches pre-existing session media or reference');
+    if (oldHashes.has((await fingerprints([source]))[0])) throw new Error('stale output: matches pre-existing session media or reference');
     if (o.video) await copyFile(source, o.out);
-    else await run('sips', ['-s', 'format', 'png', source, '--out', o.out], work);
+    else await run(PY, [IMGTOOL, 'png', source, o.out], work);
     const data = await readFile(o.out);
     if (o.video ? data.toString('ascii', 4, 8) !== 'ftyp' : !data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) throw new Error('invalid output media signature');
     console.log(JSON.stringify({ status: 'ok', path: o.out, engine: 'grok', source_path: source, bytes: (await stat(o.out)).size, elapsed_seconds: Math.round((Date.now() - start) / 1000) }));

@@ -49,6 +49,10 @@ async function main() {
 
   line(`Node: ${process.version}  (${process.platform}/${process.arch})`);
   line(ok("node is running this script"));
+  const py = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+  const pil = await probe(py, ["-c", "import PIL; print(PIL.__version__)"]);
+  const pillowReady = pil.code === 0;
+  line(pillowReady ? ok(`Pillow ${pil.out.trim()} (${py}) — used to convert and verify images`) : no(`Pillow missing — run: ${py} -m pip install pillow (every engine needs it)`));
 
   line("\n[codex engine — images]");
   const codex = await resolveCodex();
@@ -117,6 +121,7 @@ async function main() {
   line(`gemini (images+edits):  ${geminiReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`muse   (images):        ${museReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`lovart (images):        ${lovartReady ? "READY ✅" : "NOT READY ❌"}`);
+  if (!pillowReady) { line("\nInstall Pillow first — every engine uses it."); process.exit(1); }
   if (!codexReady && !grokReady && !geminiReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
   line("\nAt least one engine is ready. See SETUP.md for anything marked ❌.");
 }

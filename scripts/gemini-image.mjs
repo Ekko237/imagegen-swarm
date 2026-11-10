@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, copyFile, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
 const BRAIN = path.join(homedir(), '.gemini', 'antigravity-cli', 'brain');
@@ -57,7 +57,9 @@ function run(bin, args, cwd, timeout = 60000) {
   });
 }
 
-const digest = async file => createHash('sha256').update(await readFile(file)).digest('hex');
+// 图片转换、尺寸、解码指纹都交给跨平台的 imgtool.py（Pillow）
+const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+const IMGTOOL = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imgtool.py');
 
 async function transcript(conversation) {
   const file = path.join(BRAIN, conversation, '.system_generated', 'logs', 'transcript.jsonl');
@@ -74,15 +76,9 @@ async function main() {
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.gemini-image-${Date.now()}-`));
   try {
-    // 统一解码后再散列，防止把参考图换个格式冒充新图
-    let serial = 0;
-    async function fingerprint(file) {
-      const normalized = path.join(work, `verify-${serial++}.bmp`);
-      await run('sips', ['-s', 'format', 'bmp', file, '--out', normalized], work);
-      const hash = await digest(normalized);
-      await rm(normalized);
-      return hash;
-    }
+    // 解码后再散列，防止把参考图换个格式冒充新图
+    const img = async (...args) => JSON.parse(await run(PY, [IMGTOOL, ...args], work));
+    const fingerprint = async file => (await img('fp', file)).fp[0];
     const refs = [], refHashes = new Set();
     for (const [i, ref] of o.refs.entries()) {
       const copy = path.join(work, `ref-${i + 1}${path.extname(ref)}`);
@@ -119,17 +115,16 @@ async function main() {
         }
       }
     }
-    if (!generated.length) throw new Error(`no generate_image result in agy conversation ${parent}; reply: ${result.response?.slice(-3000)}`);
+    // 子代理出图失败（额度用完会报 429 RESOURCE_EXHAUSTED）时原因在主代理最后的回复里，放在报错最前面
+    if (!generated.length) throw new Error(`generate_image produced no image: ${result.response?.slice(-1500)} (agy conversation ${parent})`);
     const picked = generated.find(g => result.response?.includes(g.file)) ?? generated.at(-1);
     const source = picked.file;
     if (path.dirname(source) !== brain) throw new Error(`generated image outside this conversation's artifacts: ${source}`);
     if ((await stat(source)).mtimeMs < start) throw new Error(`stale output: ${source} predates this run`);
     if (refHashes.has(await fingerprint(source))) throw new Error('stale output: matches a reference image');
-    await run('sips', ['-s', 'format', 'png', source, '--out', o.out], work);
+    const { width, height } = await img('png', source, o.out);
     const data = await readFile(o.out);
     if (!data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) throw new Error('invalid output PNG signature');
-    const size = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', o.out], work);
-    const [width, height] = ['pixelWidth', 'pixelHeight'].map(k => Number(size.match(new RegExp(`${k}: (\\d+)`))[1]));
     console.log(JSON.stringify({
       status: 'ok', path: o.out, engine: 'gemini', source_path: source, width, height, aspect: picked.call.AspectRatio,
       tool_prompt: picked.call.Prompt, prompt_verbatim: picked.call.Prompt.trim() === prompt, attempts: generated.length,

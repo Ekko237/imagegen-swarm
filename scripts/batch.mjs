@@ -54,9 +54,11 @@ function exec(bin, args) {
 }
 
 // 清单写了比例的图，交回的宽高比差超过 3% 就不算数（codex、lovart、muse 的比例只写在说明里，偶尔不照做）
+const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 async function ratioOff(file, aspect) {
-  const r = await exec('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', file]);
-  const [w, h] = ['pixelWidth', 'pixelHeight'].map(k => Number(r.stdout.match(new RegExp(`${k}: (\\d+)`))[1]));
+  const r = await exec(PY, [path.join(here, 'imgtool.py'), 'size', file]);
+  if (r.code !== 0) throw new Error(`imgtool size failed on ${file}: ${r.stderr}`);
+  const { width: w, height: h } = JSON.parse(r.stdout);
   const [a, b] = aspect.split(':').map(Number);
   return Math.abs(w / h - a / b) / (a / b) > 0.03 ? `${w}×${h}` : null;
 }
@@ -123,7 +125,7 @@ async function main() {
         ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
       log({ event: 'start', id: job.id, engine, lane: n });
       const began = Date.now();
-      const r = await exec(script.endsWith('.py') ? 'python3' : process.execPath, args);
+      const r = await exec(script.endsWith('.py') ? PY : process.execPath, args);
       const line = r.stdout.trim().split('\n').at(-1) ?? '';
       const report = line.startsWith('{') ? JSON.parse(line) : { status: 'error', reason: (r.stderr || r.stdout).slice(-500) };
       const seconds = Math.round((Date.now() - began) / 1000);
@@ -135,7 +137,7 @@ async function main() {
         report.reason = `比例不对：要 ${job.aspect}，交回 ${off}`;
       }
       if (r.code === 0 && report.status === 'ok') {
-        done.push({ id: job.id, file: job.file, engine, seconds });
+        done.push({ id: job.id, file: job.file, engine, lane: n, seconds, started: new Date(began).toISOString(), finished: new Date().toISOString() });
         log({ event: 'done', id: job.id, engine, seconds });
         continue;
       }

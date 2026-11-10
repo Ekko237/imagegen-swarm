@@ -1,72 +1,80 @@
-# image-gen
+# imagegen-swarm
 
-A **Claude Code / Codex skill** that generates images, reference edits and videos through engines you already have accounts for. No image API keys; output stays on your disk.
+**Use every AI image quota you already pay for, all at once.** A Claude Code / Codex skill that hands a list of images to Codex, Grok, Gemini, Muse and Lovart in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work. No image API keys.
+
+[中文说明](README.zh-CN.md)
+
+![Ten images from one batch, made by three engines in parallel](docs/showcase.jpg)
+
+![Timeline of the batch: every engine's lanes working at the same time](docs/timeline.png)
+
+## Why
+
+Each image tool has its own quota that resets weekly or monthly, and most of it goes unused. One engine alone is slow and stops at its limit. imagegen-swarm puts all of them on one queue:
+
+- **Parallel**: every engine runs a few lanes at once; a free lane grabs the next job it can handle.
+- **Quota-aware**: an engine that reports exhausted quota or a missing login is shut down, and its job goes back to the queue.
+- **Correct**: every image is checked to be new from this run, wrong aspect ratios are redone by another engine, and output is always real PNG.
+- **Resumable**: rerun the same job list and finished images are skipped.
+
+## Engines
 
 | Engine | Can do | Runs through |
 |---|---|---|
-| **codex** | images, reference images | Codex CLI's built-in `image_gen` (your Codex/ChatGPT login) |
+| **codex** | images, reference images | Codex CLI's built-in `image_gen` (your Codex / ChatGPT login) |
 | **grok** | images, edits, reference-to-video | Grok Build CLI's Imagine tools |
 | **gemini** | images, edits (up to 3 references) | Antigravity CLI's `generate_image` |
 | **muse** | images, reference images | Muse (muse.ai) driven by a headless browser |
 | **lovart** | images, reference images | the official Lovart CLI (your AK/SK) |
 
-> 🔒 This repo contains no credentials. Each engine keeps its login outside the skill, so cloning or forking it never carries an account with it.
+You only need one. Every engine you add makes batches faster.
 
 ## Install
 
 ```bash
-git clone https://github.com/Ekko237/image-gen.git ~/.claude/skills/image-gen   # Claude Code
-git clone https://github.com/Ekko237/image-gen.git ~/.codex/skills/image-gen    # Codex
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/image-gen   # Claude Code
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/image-gen    # Codex
+python3 -m pip install pillow
+node ~/.claude/skills/image-gen/scripts/check.mjs                                    # shows which engines are ready
 ```
 
-Set up the engines you want with [SETUP.md](SETUP.md), then check which are ready:
-
-```bash
-node scripts/check.mjs
-```
+Requirements: Node.js 18+ and Python 3 with Pillow, on macOS, Windows or Linux. Log in to the engines you want with [SETUP.md](SETUP.md).
 
 ## Usage
 
-Ask your agent for an image or a video and the skill triggers. For a batch, write a job list and let every engine grab work at once:
+Ask your agent for images and the skill triggers. Or run a batch yourself:
 
 ```bash
-echo '[{"id":"apple","prompt":"a red apple on a white table","aspect":"1:1"},
-       {"id":"kite","prompt":"a red kite in a clear sky","aspect":"3:4"}]' > jobs.json
+cat > jobs.json <<'EOF'
+[
+  {"id": "lemon",  "prompt": "a lemon slice on a blue background, flat illustration", "aspect": "1:1"},
+  {"id": "kite",   "prompt": "a red kite in a clear sky, minimal",                    "aspect": "3:4"},
+  {"id": "whale",  "prompt": "a blue whale in the deep ocean, low poly",              "aspect": "16:9"},
+  {"id": "night",  "prompt": "the same lemon slice, but at night", "ref": ["out/lemon.png"]}
+]
+EOF
 node scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-Or call one engine directly:
-
-```bash
-node scripts/gemini-image.mjs --prompt "a red apple on a white table" --out apple.png --aspect 1:1
-node scripts/codex-image.mjs  --prompt "a red apple on a white table" --out apple.png --aspect 1:1 --json
-node scripts/grok-image.mjs   --prompt "the apple rolls to the right" --ref apple.png --video --out apple.mp4
-python3 scripts/muse-image.py --prompt "a red apple, watercolor" --out apple.png --aspect 4:3
-node scripts/lovart.mjs       --prompt "a red apple, flat illustration" --out apple.png --json
-```
-
-Every script makes one image per call, prints one JSON line, exits non-zero on failure, and verifies the image is new from this run. Engine choice, flags and caveats are in [SKILL.md](SKILL.md).
+Each job needs `id` and `prompt`; `aspect`, `ref`, `video` and `engine` are optional. Output lands in `out/<id>.png`, progress prints as JSON lines, and `out/batch-results.json` records which engine made each image. Single engines also work on their own, e.g. `node scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](SKILL.md).
 
 ## Tests
 
 ```bash
-node evals/run.mjs out/            # all fixed tasks
-node evals/run.mjs out/ --only gemini-t2i,grok-t2i
+node evals/run.mjs out/                         # every fixed task, including a mixed batch
+node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ```
-
-The runner checks status, aspect ratio, prompt passthrough, Muse cleanup and a mixed batch, and writes `results.json` for a judge to score each image with the rubric in `evals/evals.json`.
 
 ## Layout
 
 ```
-image-gen/
-├─ SKILL.md            skill definition and engine guide
-├─ SETUP.md            install and login per engine
-├─ AGENTS.md           entry point for an agent handed this repo
-├─ scripts/            batch.mjs (work-stealing across engines), codex-image.mjs, grok-image.mjs,
-│                      gemini-image.mjs, muse-image.py, lovart.mjs, check.mjs
-├─ references/         codex.md, lovart.md
-└─ evals/              evals.json (tasks + rubric), run.mjs
+├─ SKILL.md      skill definition and engine guide
+├─ SETUP.md      install and login per engine
+├─ AGENTS.md     entry point for an agent handed this repo
+├─ scripts/      batch.mjs (work-stealing), one script per engine, imgtool.py, check.mjs
+├─ references/   codex.md, lovart.md
+├─ evals/        fixed tasks with a scoring rubric, run.mjs
+└─ docs/         README images
 ```
 
 ## Credits

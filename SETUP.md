@@ -1,6 +1,6 @@
-# image-gen setup
+# imagegen-swarm setup
 
-Put this folder, named `image-gen`, in your agent's skills directory: `~/.claude/skills/image-gen/` for Claude Code, `~/.codex/skills/image-gen/` for Codex. You need Node.js 18+ and macOS `sips`; the Muse engine also needs Python 3 with Playwright. The skill contains no accounts or keys. Each engine keeps its login in its own folder, so never bundle those folders when you share the skill. Set up only the engines you want.
+Put this folder, named `image-gen`, in your agent's skills directory: `~/.claude/skills/image-gen/` for Claude Code, `~/.codex/skills/image-gen/` for Codex. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its own folder, so never bundle those folders when you share the skill. Set up only the engines you want.
 
 | Engine | Install and log in | Login lives in |
 |---|---|---|

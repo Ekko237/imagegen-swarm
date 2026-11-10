@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 // 用法：node evals/run.mjs <输出目录> [--only id,id]
 // 逐项跑 evals.json 的固定任务，核对机器能查的 checks；content 一栏留给评委看图打分
 const here = path.dirname(fileURLToPath(import.meta.url));
+const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const SCRIPTS = { gemini: 'gemini-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
 const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
 
@@ -21,9 +22,10 @@ function exec(bin, args) {
 }
 
 async function size(file) {
-  const r = await exec('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', file]);
-  if (r.code !== 0) throw new Error(`sips failed on ${file}: ${r.stderr}`);
-  return ['pixelWidth', 'pixelHeight'].map(k => Number(r.stdout.match(new RegExp(`${k}: (\\d+)`))[1]));
+  const r = await exec(PY, [path.join(here, '..', 'scripts', 'imgtool.py'), 'size', file]);
+  if (r.code !== 0) throw new Error(`imgtool size failed on ${file}: ${r.stderr}`);
+  const { width, height } = JSON.parse(r.stdout);
+  return [width, height];
 }
 
 async function main() {
@@ -54,13 +56,16 @@ async function main() {
       continue;
     }
     const file = path.join(out, `${task.id}.png`);
-    const args = task.args.map(a => a.replace(/^\{(.+)\}$/, (_, id) => {
-      if (!produced[id]) throw new Error(`${task.id} needs ${id} to run first`);
-      return produced[id];
-    }));
+    const missing = task.args.map(a => a.match(/^\{(.+)\}$/)?.[1]).find(id => id && !produced[id]);
+    if (missing) {
+      results.push({ id: task.id, engine: task.engine, pass: false, failed: [`依赖的 ${missing} 没出图`], seconds: 0, file: null, size: null, content: task.content ?? null });
+      console.log(JSON.stringify(results.at(-1)));
+      continue;
+    }
+    const args = task.args.map(a => a.replace(/^\{(.+)\}$/, (_, id) => produced[id]));
     const started = Date.now();
     const script = path.join(here, '..', 'scripts', SCRIPTS[task.engine]);
-    const r = await exec(script.endsWith('.py') ? 'python3' : 'node', [script, ...args, '--out', file]);
+    const r = await exec(script.endsWith('.py') ? PY : 'node', [script, ...args, '--out', file]);
     const report = JSON.parse(r.stdout.trim().split('\n').at(-1));
     const failed = [];
     const c = task.checks;
@@ -79,7 +84,7 @@ async function main() {
       if (c.prompt_verbatim !== undefined && report.prompt_verbatim !== c.prompt_verbatim) failed.push(`prompt_verbatim=${report.prompt_verbatim}`);
     }
     if (c.muse_chat_removed) {
-      const listed = JSON.parse((await exec('python3', [MUSE_PY, '--list-chats'])).stdout).chats;
+      const listed = JSON.parse((await exec(PY, [MUSE_PY, '--list-chats'])).stdout).chats;
       const left = listed.filter(chat => chat.title?.startsWith('image-gen：'));
       if (left.length) failed.push(`Muse 里还留着侧聊天：${left.map(chat => chat.title).join('、')}`);
     }

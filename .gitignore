@@ -6,6 +6,8 @@ out/
 *.webp
 *.mp4
 *.mov
+!docs/*.png
+!docs/*.jpg
 .codex-img-*/
 .gemini-image-*/
 .grok-image-*/

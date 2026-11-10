@@ -5,7 +5,6 @@ import json
 import os
 import re
 import secrets
-import subprocess
 import sys
 import tempfile
 import time
@@ -13,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from PIL import Image
 from playwright.sync_api import sync_playwright
 
 # Muse（muse.ai）没有接口，全部走专用的无头浏览器：一次打开浏览器，新开侧聊天发任务、等它画完、从云电脑文件库下载、删掉侧聊天。
@@ -254,13 +254,11 @@ def download(page, remote, folder):
     return target
 
 
-def fingerprint(file, work):
-    # 解码成 BMP 再散列，换格式也认得出是同一张图
-    bmp = work / f"fp-{secrets.token_hex(4)}.bmp"
-    subprocess.run(["sips", "-s", "format", "bmp", str(file), "--out", str(bmp)], check=True, capture_output=True)
-    digest = hashlib.sha256(bmp.read_bytes()).hexdigest()
-    bmp.unlink()
-    return digest
+def fingerprint(file):
+    # 解码后像素的 sha256，换格式也认得出是同一张图（和 imgtool.py 的 fp 一致）
+    with Image.open(file) as image:
+        rgba = image.convert("RGBA")
+        return hashlib.sha256(f"{rgba.width}x{rgba.height}".encode() + rgba.tobytes()).hexdigest()
 
 
 def generate(args):
@@ -277,7 +275,7 @@ def generate(args):
             # 参考图换成唯一上传名，云端同名文件不会被改名
             staged = work / f"ref{index}-{secrets.token_hex(6)}{Path(ref).suffix}"
             staged.write_bytes(Path(ref).read_bytes())
-            ref_hashes.add(fingerprint(staged, work))
+            ref_hashes.add(fingerprint(staged))
             refs.append(staged)
         remote = f"{REMOTE_DIR}/img-{int(time.time() * 1000)}-{secrets.token_hex(4)}.png"
         text = ("运行环境：你在自己的云端电脑上运行，读不到用户本机的文件。\n"
@@ -300,9 +298,11 @@ def generate(args):
                 if remote not in re.findall(r"产出文件[:：]\s*(\S+)", last):
                     raise RuntimeError(f"Muse 没交出 {remote}；最后回复：{last[-1500:]}")
                 saved = download(page, remote, work)
-                if fingerprint(saved, work) in ref_hashes:
+                if fingerprint(saved) in ref_hashes:
                     raise RuntimeError("stale output: matches a reference image")
-                subprocess.run(["sips", "-s", "format", "png", str(saved), "--out", str(out)], check=True, capture_output=True)
+                with Image.open(saved) as image:
+                    image.save(out, "PNG")
+                    width, height = image.width, image.height
             except BaseException as error:
                 # 失败也删掉本轮侧聊天；发送中途失败时编号可能还没拿到，按前后差集找出本轮新建的；删不掉时两个原因一起报
                 try:
@@ -312,8 +312,6 @@ def generate(args):
                     raise RuntimeError(f"{error}；另外：{cleanup}") from error
                 raise
             delete(page, chat)
-    size = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(out)], check=True, capture_output=True, text=True).stdout
-    width, height = (int(re.search(rf"{k}: (\d+)", size).group(1)) for k in ("pixelWidth", "pixelHeight"))
     return {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
             "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
 
