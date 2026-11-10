@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // 逐项跑 evals.json 的固定任务，核对机器能查的 checks；content 一栏留给评委看图打分
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
-const SCRIPTS = { gemini: 'gemini-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
+const SCRIPTS = { gemini: 'gemini-image.mjs', jimeng: 'jimeng-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
 const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
 
 function exec(bin, args) {

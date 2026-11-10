@@ -83,6 +83,13 @@ async function main() {
     line(no(`agy not found at ${agy} — install the Antigravity CLI and sign in`));
   }
 
+  line("\n[jimeng engine — images + edits + video (Dreamina CLI)]");
+  const dreamina = [process.env.DREAMINA_INSTALL_DIR && path.join(process.env.DREAMINA_INSTALL_DIR, process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), "bin", process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), ".local", "bin", "dreamina")].filter(Boolean).find((p) => existsSync(p)) || "dreamina";
+  const credit = await probe(dreamina, ["user_credit"]);
+  const creditMatch = credit.out.match(/"total_credit"\s*:\s*(\d+)/);
+  const jimengReady = credit.code === 0 && Boolean(creditMatch);
+  line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install: curl -fsSL https://jimeng.jianying.com/cli | bash, then: dreamina login"));
+
   line("\n[muse engine — images (Muse cloud computer)]");
   const musePy = path.join(path.dirname(new URL(import.meta.url).pathname), "muse-image.py");
   const d = await probe("python3", [musePy, "--list-chats"]);
@@ -119,10 +126,11 @@ async function main() {
   line(`codex  (images):        ${codexReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`grok   (images+video):  ${grokReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`gemini (images+edits):  ${geminiReady ? "READY ✅" : "NOT READY ❌"}`);
+  line(`jimeng (images+video):  ${jimengReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`muse   (images):        ${museReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`lovart (images):        ${lovartReady ? "READY ✅" : "NOT READY ❌"}`);
   if (!pillowReady) { line("\nInstall Pillow first — every engine uses it."); process.exit(1); }
-  if (!codexReady && !grokReady && !geminiReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
+  if (!codexReady && !grokReady && !geminiReady && !jimengReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
   line("\nAt least one engine is ready. See SETUP.md for anything marked ❌.");
 }
 

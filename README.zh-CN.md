@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**把你已经付了钱的几家 AI 出图额度同时用起来。** 这是一个 Claude Code / Codex 技能：一批图同时交给 Codex、Grok、Gemini、Muse、Lovart，哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。不需要任何出图 API 密钥。
+**把你已经付了钱的几家 AI 出图额度同时用起来。** 这是一个 Claude Code / Codex 技能：一批图同时交给 Codex、Grok、Gemini、即梦、Muse、Lovart，哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。不需要任何出图 API 密钥。
 
 [English](README.md)
 
@@ -22,6 +22,7 @@
 | 引擎 | 能做什么 | 通过什么出图 |
 |---|---|---|
 | **codex** | 出图、参考图 | Codex 命令行内置的 `image_gen`（用你的 Codex / ChatGPT 登录） |
+| **jimeng（即梦）** | 出图、改图（最多 10 张参考图）、文生视频、图生视频 | 即梦官方命令行（用你的抖音登录） |
 | **grok** | 出图、改图、参考图生成视频 | Grok Build 命令行的 Imagine 工具 |
 | **gemini** | 出图、改图（最多 3 张参考图） | Antigravity 命令行的 `generate_image` |
 | **muse** | 出图、参考图 | 用无头浏览器操作 Muse（muse.ai） |

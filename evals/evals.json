@@ -59,6 +59,39 @@
       }
     },
     {
+      "id": "jimeng-t2i",
+      "engine": "jimeng",
+      "args": [
+        "--prompt",
+        "一只坐在窗台上的橘猫，扁平插画",
+        "--aspect",
+        "1:1"
+      ],
+      "checks": {
+        "status": "ok",
+        "ratio": "1:1"
+      },
+      "content": "窗台上的橘猫，扁平插画"
+    },
+    {
+      "id": "jimeng-edit",
+      "engine": "jimeng",
+      "after": "jimeng-t2i",
+      "args": [
+        "--prompt",
+        "同一只猫，换成夜晚，窗外有月亮",
+        "--ref",
+        "{jimeng-t2i}",
+        "--aspect",
+        "1:1"
+      ],
+      "checks": {
+        "status": "ok",
+        "ratio": "1:1"
+      },
+      "content": "同一只猫、同一构图，换成有月亮的夜晚"
+    },
+    {
       "id": "muse-t2i",
       "engine": "muse",
       "args": [

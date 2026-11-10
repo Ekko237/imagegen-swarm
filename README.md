@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**Use every AI image quota you already pay for, all at once.** A Claude Code / Codex skill that hands a list of images to Codex, Grok, Gemini, Muse and Lovart in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work. No image API keys.
+**Use every AI image quota you already pay for, all at once.** A Claude Code / Codex skill that hands a list of images to Codex, Grok, Gemini, Jimeng, Muse and Lovart in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work. No image API keys.
 
 [中文说明](README.zh-CN.md)
 
@@ -22,6 +22,7 @@ Each image tool has its own quota that resets weekly or monthly, and most of it 
 | Engine | Can do | Runs through |
 |---|---|---|
 | **codex** | images, reference images | Codex CLI's built-in `image_gen` (your Codex / ChatGPT login) |
+| **jimeng** | images, edits (up to 10 references), text- and image-to-video | the official Dreamina CLI (your Douyin login) |
 | **grok** | images, edits, reference-to-video | Grok Build CLI's Imagine tools |
 | **gemini** | images, edits (up to 3 references) | Antigravity CLI's `generate_image` |
 | **muse** | images, reference images | Muse (muse.ai) driven by a headless browser |
@@ -71,7 +72,7 @@ node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ├─ SKILL.md      skill definition and engine guide
 ├─ SETUP.md      install and login per engine
 ├─ AGENTS.md     entry point for an agent handed this repo
-├─ scripts/      batch.mjs (work-stealing), one script per engine, imgtool.py, check.mjs
+├─ scripts/      batch.mjs (work-stealing), one script per engine, jimeng.mjs (Dreamina runner), imgtool.py, check.mjs
 ├─ references/   codex.md, lovart.md
 ├─ evals/        fixed tasks with a scoring rubric, run.mjs
 └─ docs/         README images

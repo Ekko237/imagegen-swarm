@@ -9,22 +9,23 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ENGINES = {
   gemini: { script: 'gemini-image.mjs', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: 3 },
+  jimeng: { script: 'jimeng-image.mjs', ratios: ['21:9', '16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16'], ratioFlag: '--aspect', maxRefs: 10, video: true, textVideo: true },
   codex: { script: 'codex-image.mjs', ratios: null, ratioFlag: '--aspect', maxRefs: Infinity, extra: ['--json'] },
   grok: { script: 'grok-image.mjs', ratios: ['1:1', '16:9', '9:16', '3:2', '2:3'], ratioFlag: '--ratio', maxRefs: 1, video: true },
   lovart: { script: 'lovart.mjs', ratios: null, ratioFlag: '--aspect', maxRefs: Infinity, extra: ['--json'] },
   muse: { script: 'muse-image.py', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: Infinity },
 };
-// Muse 只有一个专用浏览器，其余引擎各开两条通道
-const DEFAULT_LANES = { gemini: 2, codex: 2, grok: 2, lovart: 2, muse: 1 };
+// Muse 只有一个专用浏览器，其余引擎各开两条通道；排在前面的先接活
+const DEFAULT_LANES = { gemini: 2, jimeng: 2, codex: 2, grok: 2, lovart: 2, muse: 1 };
 // 这类报错说明这家整体用不了（额度、登录、安装），不是这一张的问题
-const ENGINE_DOWN = /quota|credit|rate.?limit|usage limit|weekly limit|exhausted|insufficient|not enough|429|unauthori|not logged|log ?in|not_configured|not_installed|not found:|ENOENT/i;
+const ENGINE_DOWN = /quota|credit|积分|余额|rate.?limit|usage limit|weekly limit|exhausted|insufficient|not enough|429|unauthori|not logged|log ?in|ComplianceConfirmation|not_configured|not_installed|not found:|ENOENT/i;
 
 function parse(argv) {
   const o = { engines: Object.keys(ENGINES), lanes: { ...DEFAULT_LANES }, tries: 3 };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') {
-      console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,codex,grok,lovart,muse] [--lanes gemini=2,muse=1] [--tries 3]\n' +
+      console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse] [--lanes gemini=2,muse=1] [--tries 3]\n' +
         'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）');
       process.exit(0);
     }
@@ -91,7 +92,7 @@ async function main() {
     const e = ENGINES[engine];
     return !down.has(engine) && !job.tried.includes(engine) && (!job.engine || job.engine === engine)
       && (!job.video || e.video) && (!job.aspect || !e.ratios || e.ratios.includes(job.aspect))
-      && job.ref.length <= e.maxRefs && (!job.video || job.ref.length > 0);
+      && job.ref.length <= e.maxRefs && (!job.video || job.ref.length > 0 || e.textVideo);
   };
   // 没有任何还开着、还没试过的引擎能接的活，判定失败
   const settleOrphans = () => {
