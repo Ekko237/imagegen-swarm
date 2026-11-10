@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-![imagegen-swarm 画的图，每张标着是哪家引擎画的](docs/showcase.jpg)
+![imagegen-swarm 画的图，每张标着是哪家引擎画的](docs/showcase.webp)
 
 ![一次真实抢活：10 张图 3.5 分钟，比一张接一张快 3.5 倍](docs/timeline.png)
 

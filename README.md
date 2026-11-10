@@ -4,7 +4,7 @@
 
 [中文说明](README.zh-CN.md)
 
-![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.jpg)
+![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
 
 ![One real batch: 10 images in 3.5 minutes, 3.5 times faster than one at a time](docs/timeline.png)
 
