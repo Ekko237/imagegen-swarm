@@ -4,9 +4,9 @@
 
 [中文说明](README.zh-CN.md)
 
-![Ten images from one batch, made by three engines in parallel](docs/showcase.jpg)
+![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.jpg)
 
-![Timeline of the batch: every engine's lanes working at the same time](docs/timeline.png)
+![One real batch: 10 images in 3.5 minutes, 3.5 times faster than one at a time](docs/timeline.png)
 
 ## Why
 

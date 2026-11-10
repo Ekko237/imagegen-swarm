@@ -4,9 +4,9 @@
 
 [English](README.md)
 
-![一批 10 张图，三家引擎同时出](docs/showcase.jpg)
+![imagegen-swarm 画的图，每张标着是哪家引擎画的](docs/showcase.jpg)
 
-![这一批的时间线：每家引擎的几条通道同时在干活](docs/timeline.png)
+![一次真实抢活：10 张图 3.5 分钟，比一张接一张快 3.5 倍](docs/timeline.png)
 
 ## 为什么做这个
 
