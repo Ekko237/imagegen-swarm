@@ -1,36 +1,9 @@
 #!/usr/bin/env node
-// codex-image.mjs — generate an image via Codex CLI's built-in image_gen tool.
-// Self-contained (plain Node ESM, no bun / no TypeScript). Uses the user's
-// Codex/ChatGPT login — no OPENAI_API_KEY is read or sent.
-//
-// Ported from the baoyu-image-gen codex-imagegen wrapper (spawn + instruction),
-// simplified to a single Node file so it runs in a bun-less environment.
-//
-// SANDBOX: defaults to Codex's standard "workspace-write" mode, with the output
-// directory made the writable workspace (-C). The agent can still read its own
-// image_gen output from $CODEX_HOME and write the final PNG.
-// NOTE: if an attempt fails while using that default, the next attempt escalates
-// to "danger-full-access" (which drops isolation) so unattended runs do not
-// silently produce nothing. Pass --no-escalate to disable this, or pass
-// --sandbox <mode> explicitly — an explicit mode is never widened.
-//
-// Usage:
-//   node codex-image.mjs --out <output.png> (--prompt <text> | --prompt-file <path>) [options]
-// Options:
-//   --aspect <ratio>   1:1 (default) | 16:9 | 9:16 | 4:3 | 2.35:1
-//   --ref <file>       reference image (repeatable)
-//   --sandbox <mode>   read-only | workspace-write (default) | danger-full-access
-//   --no-escalate      never auto-widen the sandbox after a failed attempt
-//   --timeout <ms>     per-attempt codex exec timeout (default 300000)
-//   --retries <n>      retry attempts on failure (default 2)
-//   --codex <path>     explicit path to codex(.exe); else auto-resolve
-//   --json             emit a single JSON result line (default: human text)
-// Exit: 0 on success, 1 on failure.
-
 import { spawn } from "node:child_process";
-import { readFile, writeFile, open, stat, mkdir, readdir } from "node:fs/promises";
+import { readFile, writeFile, open, stat, mkdir, readdir, unlink, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
@@ -39,8 +12,8 @@ const SHELL_METACHAR = /[;|&`$<>\n\r()'"]/;
 function parseArgs(argv) {
   const o = {
     prompt: "", promptFile: null, out: "", aspect: "1:1", refs: [],
-    sandbox: "workspace-write", timeoutMs: 300_000, retries: 2, codex: null, json: false,
-    noEscalate: false,
+    sandbox: "workspace-write", escalateSandbox: false,
+    timeoutMs: 300_000, retries: 2, codex: null, json: false, model: "gpt-6-luna", effort: "low",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -51,11 +24,13 @@ function parseArgs(argv) {
       case "--out": case "--image": o.out = next(); break;
       case "--aspect": case "--ar": o.aspect = next(); break;
       case "--ref": o.refs.push(next()); break;
-      case "--sandbox": o.sandbox = next(); o.noEscalate = true; break; // explicit mode is never widened
-      case "--no-escalate": o.noEscalate = true; break;
+      case "--sandbox": o.sandbox = next(); break;
+      case "--escalate-sandbox": o.escalateSandbox = true; break;
       case "--timeout": o.timeoutMs = Number(next()); break;
       case "--retries": o.retries = Number(next()); break;
       case "--codex": o.codex = next(); break;
+      case "--model": o.model = next(); break;
+      case "--effort": o.effort = next(); break;
       case "--json": o.json = true; break;
       case "-h": case "--help": printHelp(); process.exit(0);
       default: fail("invalid_args", `Unknown argument: ${a}`);
@@ -68,7 +43,6 @@ function parseArgs(argv) {
   o.out = abs(o.out);
   if (o.promptFile) o.promptFile = abs(o.promptFile);
   o.refs = o.refs.map(abs);
-  // out/ref paths get interpolated into the agent instruction; reject metachars.
   if (SHELL_METACHAR.test(o.out)) fail("invalid_args", `--out path has unsafe characters: ${o.out}`);
   for (const r of o.refs) if (SHELL_METACHAR.test(r)) fail("invalid_args", `--ref path has unsafe characters: ${r}`);
   return o;
@@ -76,7 +50,9 @@ function parseArgs(argv) {
 
 function printHelp() {
   process.stdout.write(`codex-image.mjs — image via Codex CLI image_gen\n\n` +
-    `node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--no-escalate] [--timeout ms] [--retries n] [--codex path] [--json]\n`);
+    `node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--escalate-sandbox] [--timeout ms] [--retries n] [--codex path] [--model gpt-6-luna] [--effort low] [--json]\n\n` +
+    `--escalate-sandbox: if the default workspace-write run is blocked from writing the PNG,\n` +
+    `retry remaining attempts with danger-full-access. Drops Codex's isolation — opt-in only.\n`);
 }
 
 let JSON_MODE = false;
@@ -86,7 +62,16 @@ function fail(kind, msg) {
   process.exit(kind === "invalid_args" ? 2 : 1);
 }
 
-// Resolve the codex executable: explicit flag / CODEX_BIN env > PATH > Codex desktop-app bin.
+function desktopAppCandidates() {
+  if (process.platform === "darwin") {
+    return [
+      "/Applications/Codex.app/Contents/Resources/codex",
+      path.join(homedir(), "Applications", "Codex.app", "Contents", "Resources", "codex"),
+    ];
+  }
+  return [];
+}
+
 async function resolveCodex(explicit) {
   explicit = explicit || process.env.CODEX_BIN || null;
   if (explicit) {
@@ -99,6 +84,7 @@ async function resolveCodex(explicit) {
     c.on("close", (code) => res(code === 0));
   });
   if (onPath) return "codex";
+  for (const c of desktopAppCandidates()) if (existsSync(c)) return c;
   const binDir = path.join(homedir(), "AppData", "Local", "OpenAI", "Codex", "bin");
   if (existsSync(binDir)) {
     let best = null, bestMtime = 0;
@@ -108,14 +94,15 @@ async function resolveCodex(explicit) {
     }
     if (best) return best;
   }
-  fail("codex_not_installed", "codex CLI not found on PATH or under ~/AppData/Local/OpenAI/Codex/bin. Install @openai/codex or the Codex app, then `codex login`.");
+  fail("codex_not_installed", "codex CLI not found: not a working `codex` on PATH, not in Codex.app (macOS), not under ~/AppData/Local/OpenAI/Codex/bin (Windows). Install @openai/codex or the Codex app, then `codex login`. If a broken npm shim is shadowing a good binary, point at it with --codex <path> or $CODEX_BIN.");
 }
 
 function buildInstruction(prompt, o) {
   const refHint = o.refs.length > 0
     ? `\nREFERENCE IMAGES (attached above): ${o.refs.length} image(s) provided for style/composition guidance.\n`
     : "";
-  return `You have an internal tool called image_gen for image generation. You MUST call it before doing anything else.
+  return `You have an internal image generation tool, exposed as image_gen.imagegen (it may also be
+referred to as image_gen). You MUST call it before doing anything else.
 
 TASK: Generate an image with the spec below, then save to disk.
 
@@ -138,7 +125,48 @@ HARD CONSTRAINTS:
 - You MUST call image_gen first. Only after image_gen completes may you copy the newly created file from this turn.
 - Do NOT use curl, wget, Python, or any external API.
 - Do NOT use bash to fabricate an image; only image_gen produces real pixels.
-- Use ONLY the image_gen internal tool.`;
+- Use ONLY the image_gen internal tool.
+- If image_gen fails or is unavailable, do NOT substitute any other file. Reply with
+  {"status":"error","reason":"<what failed>"} instead. Delivering an unrelated image is a
+  worse outcome than reporting failure, and the caller verifies this by content hash.`;
+}
+
+function generatedImagesRoot() {
+  return path.join(process.env.CODEX_HOME || path.join(homedir(), ".codex"), "generated_images");
+}
+
+// 拒绝把 generated_images 中的旧图当作本轮产物。
+async function snapshotGeneratedImages() {
+  const files = [];
+  async function walk(dir) {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.isFile()) { try { files.push({ path: p, size: (await stat(p)).size }); } catch {} }
+    }
+  }
+  await walk(generatedImagesRoot());
+  return files;
+}
+
+async function sha256(file) {
+  return createHash("sha256").update(await readFile(file)).digest("hex");
+}
+
+async function findStaleSource(outPath, snapshot) {
+  let outSize;
+  try { outSize = (await stat(outPath)).size; } catch { return null; }
+  const candidates = snapshot.filter((f) => f.size === outSize);
+  if (candidates.length === 0) return null;
+  const outHash = await sha256(outPath).catch(() => null);
+  if (!outHash) return null;
+  for (const c of candidates) {
+    const h = await sha256(c.path).catch(() => null);
+    if (h && h === outHash) return c.path;
+  }
+  return null;
 }
 
 async function isPng(file) {
@@ -153,7 +181,9 @@ async function isPng(file) {
 
 function runCodexExec(codex, instruction, o, cwd) {
   return new Promise((resolve) => {
-    const args = ["exec", "--json", "--sandbox", o.sandbox, "--skip-git-repo-check", "-C", cwd];
+    // 固定走 OpenAI 官方通道：config.toml 可能把 Codex 接到本机路由网关，网关不转发 image_gen
+    const args = ["exec", "--json", "-c", 'model_provider="openai"', "-m", o.model, "-c", `model_reasoning_effort="${o.effort}"`,
+      "--sandbox", o.sandbox, "--skip-git-repo-check", "-C", cwd];
     for (const r of o.refs) args.push("--image", r);
     args.push("-");
     let stdout = "", stderr = "", timedOut = false;
@@ -177,10 +207,12 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   const instruction = buildInstruction(prompt, o);
 
-  const logDir = path.join(tmpdir(), `codex-img-${Date.now()}`);
+  const logDir = path.join(outDir, `.codex-img-${Date.now()}`);
   await mkdir(logDir, { recursive: true }).catch(() => {});
   const start = Date.now();
   let lastErr = "unknown";
+  const preExisting = await snapshotGeneratedImages();
+  const outPreExisted = existsSync(o.out);
   for (let attempt = 1; attempt <= o.retries + 1; attempt++) {
     if (!o.json) process.stderr.write(`[codex] attempt ${attempt}/${o.retries + 1} (sandbox=${o.sandbox}) -> ${o.out}\n`);
     const run = await runCodexExec(codex, instruction, o, outDir);
@@ -188,6 +220,15 @@ async function main() {
     if (run.timedOut) { lastErr = `timeout after ${o.timeoutMs}ms`; continue; }
     if (run.code === -1 || run.stderr.includes("not found: codex") || run.stderr.includes("command not found")) fail("codex_not_installed", `codex could not be launched: ${run.stderr.slice(0, 300)}`);
     if (existsSync(o.out) && await isPng(o.out)) {
+      const stale = await findStaleSource(o.out, preExisting);
+      if (stale) {
+        lastErr = `rejected output: byte-identical to a pre-existing image (${stale}) — image_gen did not produce a new image this run`;
+        if (!o.json) process.stderr.write(`[codex] attempt ${attempt} REJECTED: ${lastErr}\n`);
+        if (!outPreExisted) await unlink(o.out).catch(() => {});
+        continue;
+      }
+      // 成功就删掉本轮日志；失败时日志留在输出目录供排查
+      await rm(logDir, { recursive: true, force: true });
       const s = await stat(o.out);
       const result = { status: "ok", provider: "codex", path: o.out, bytes: s.size, aspect: o.aspect, attempts: attempt, elapsed_seconds: Math.round((Date.now() - start) / 1000) };
       if (o.json) process.stdout.write(JSON.stringify(result) + "\n");
@@ -196,18 +237,15 @@ async function main() {
     }
     lastErr = run.code !== 0 ? `codex exec exited ${run.code}: ${run.stderr.slice(0, 200)}` : `no valid PNG at ${o.out} (agent may not have called image_gen, or sandbox blocked the write — try --sandbox with a broader mode)`;
     if (!o.json) process.stderr.write(`[codex] attempt ${attempt} failed: ${lastErr}\n`);
-    // AUTO-ESCALATE SANDBOX: workspace-write can be blocked from writing the PNG in some
-    // (especially unattended) environments, and retrying the SAME mode just burns attempts.
-    // On failure, escalate to danger-full-access for the remaining attempts so an unattended
-    // batch does not silently yield 0 images. Only escalates from the workspace-write default;
-    // if the caller passed --sandbox explicitly, that choice is respected and never widened.
-    // Pass --no-escalate to keep the default mode for every attempt.
-    if (o.sandbox === "workspace-write" && !o.noEscalate) {
+    if (o.escalateSandbox && o.sandbox !== "danger-full-access") {
       o.sandbox = "danger-full-access";
-      if (!o.json) process.stderr.write(`[codex] sandbox workspace-write failed -> escalating to danger-full-access for next attempt\n`);
+      if (!o.json) process.stderr.write(`[codex] --escalate-sandbox given -> retrying remaining attempts with danger-full-access\n`);
+    } else if (o.sandbox === "workspace-write") {
+      lastErr += ` — if the sandbox blocked the write, re-run with --escalate-sandbox (or --sandbox danger-full-access); both drop Codex's isolation`;
+      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox on your behalf; pass --escalate-sandbox to allow it\n`);
     }
   }
-  fail("generation_failed", lastErr);
+  fail("generation_failed", `${lastErr} (logs: ${logDir})`);
 }
 
 main().catch((e) => fail("spawn_failed", String(e?.stack || e)));

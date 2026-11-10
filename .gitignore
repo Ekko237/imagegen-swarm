@@ -1,7 +1,4 @@
-# Generated media and default wrapper output dirs
-jimeng-out-*/
-imgs/
-vids/
+# Generated media and scratch dirs
 out/
 *.png
 *.jpg
@@ -9,9 +6,12 @@ out/
 *.webp
 *.mp4
 *.mov
-
-# Local prompt scratch files
-prompt*.txt
+.codex-img-*/
+.gemini-image-*/
+.grok-image-*/
+.muse-image-*/
+.lovart-*/
+__pycache__/
 
 node_modules/
 .DS_Store

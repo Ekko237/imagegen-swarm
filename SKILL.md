@@ -1,84 +1,51 @@
 ---
 name: image-gen
-description: Generate images and videos with two engines the user already owns — Codex CLI's built-in image_gen (images; uses the Codex/ChatGPT login, no OpenAI API key) and Dreamina/jimeng (images AND videos, via the logged-in `dreamina` CLI). Use whenever the user asks to generate, create, draw, or make an image or a video — "text to image", "text to video", "draw me a…", reference-image edits, upscales — or names "codex" or "jimeng"/"dreamina" as the engine. Do NOT use for editing existing local files without generation, or for non-generation tasks.
+description: Generate images, reference edits and videos with Codex, Grok Imagine, Gemini (Antigravity), Muse or Lovart. Use for "generate an image", "draw", "edit this image", "make a video", text to image/video, or requests naming codex, grok, gemini, nano banana, antigravity, muse or lovart. Not for ordinary local image processing.
 ---
 
-# image-gen — Codex + jimeng image & video generation
+# image-gen
 
-Two engines only, each driven by the operator's own login (no API keys in this repo):
+| Engine | Script | Can do | Aspect ratio | Time per image | Quota |
+|---|---|---|---|---|---|
+| codex | `codex-image.mjs` | image, reference images | `--aspect`, chosen by the model | ~30 s | Codex plan usage |
+| grok | `grok-image.mjs` | image, edit, reference-to-video | `--ratio`, real parameter | ~45 s | X / Grok plan usage |
+| gemini | `gemini-image.mjs` | image, edit (≤3 references) | `--aspect`, real parameter | 20–45 s | Antigravity (Gemini) quota |
+| muse | `muse-image.py` | image, reference images | `--aspect`, written into the task | 1–2 min | Muse weekly limit |
+| lovart | `lovart.mjs` | image, reference images | `--aspect`, written into the prompt | ~35 s | Lovart credits |
 
-| Engine | Modality | Auth | Cost | Speed |
-|--------|----------|------|------|-------|
-| **codex** | images | Codex/ChatGPT login (no `OPENAI_API_KEY`) | Codex subscription usage | slow (5–10× an API) |
-| **jimeng** (Dreamina) | images **and** videos | `dreamina login` session (Douyin OAuth) | account **credits** | async, minutes |
+All scripts live in `scripts/` (run `.mjs` with node, `.py` with python3). Shared flags: `--prompt` or `--prompt-file`, `--out <png>`, repeatable `--ref`, `--timeout`. Each call makes one image, prints one JSON line, and exits non-zero on failure. Scripts never switch engines on their own.
 
-Both wrappers are self-contained **Node** scripts under `scripts/` (no bun, no TypeScript). Run them with `node`.
+```bash
+node scripts/gemini-image.mjs --prompt "an orange cat on a windowsill, flat illustration" --out cat.png --aspect 1:1
+node scripts/gemini-image.mjs --prompt "the same cat, now at night" --ref cat.png --out night.png --aspect 16:9
+```
 
 ## Choosing an engine
 
-- **Video** → only **jimeng** (codex can't do video).
-- **Image, user named an engine** → use it.
-- **Image, no preference** → default to **codex** (no credit spend) unless the user wants jimeng's specific look/models, or a batch where spending credits is fine.
-- Reference-image edits: codex `--ref` (style/composition guidance) or jimeng `image2image` (jimeng image-guided editing).
+If the user or the caller names an engine, use it. Otherwise:
 
-## ⚠️ Before any real run
+- Video: grok.
+- Editing from a reference with an exact aspect ratio: gemini.
+- Anything else: the first ready engine in the order gemini → codex → grok → lovart → muse (`scripts/check.mjs` shows which are ready).
 
-- **jimeng spends account credits** on every submit. Check balance first: `dreamina user_credit` (or `node scripts/check.mjs`). Warn the user before paid runs; prefer small batches (`--generate_num=1` while testing).
-- **codex** consumes Codex subscription usage and is slow — fine for one-offs, avoid huge batches.
-- Neither wrapper publishes anything; output stays local.
+If an engine reports that its quota is used up or its login has expired, move to the next one in that order and say which engine produced the result. Report any other failure, such as a content-policy refusal, without switching.
 
-## codex — images
+## Engine notes
 
-```bash
-node scripts/codex-image.mjs --out <output.png> --prompt "<text>" [--aspect 1:1] [--ref ref1.png ...] [--json]
-```
+- **codex**: calls Codex's built-in `image_gen`. Always uses the official OpenAI provider (`-c model_provider="openai"`; `--model` defaults to `gpt-6-luna`, `--effort` to `low`), so it still works when the local Codex config points at a custom gateway. Runs in the `workspace-write` sandbox; use `--escalate-sandbox` only with the user's consent. It snapshots `~/.codex/generated_images` first and rejects any output identical to an older file. See [references/codex.md](references/codex.md).
+- **grok**: read `~/.grok/bundled/skills/imagine/SKILL.md` first. No `--ref` → text to image; `--ref` → edit (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio` cannot be auto). Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user rather than changing the setting.
+- **gemini**: uses the Antigravity CLI's (`agy`) built-in `generate_image`, called by its image-generator subagent. `--aspect` accepts 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9. Output includes `tool_prompt` and `prompt_verbatim`; `false` means the subagent rewrote the prompt, so mention it when delivering.
+- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/image-gen/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. If Muse asks for approval, the script answers immediately: it clicks "Allow once" only when every request refers to this run's save folder `/home/hatch/workspace/image-gen`, and otherwise fails with the request text. One process at a time can use the browser.
+- **lovart**: opens a fresh thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`. See [references/lovart.md](references/lovart.md).
 
-- `--aspect`: `1:1` (default), `16:9`, `9:16`, `4:3`, `2.35:1`.
-- `--ref <file>` (repeatable): reference images for style/composition.
-- `--prompt-file <path>`: read the prompt from a file instead of `--prompt`.
-- **Sandbox**: defaults to Codex's standard `workspace-write` with the output directory as the writable workspace. If an attempt fails on that default, the script retries with `--sandbox danger-full-access` (isolation dropped) so unattended runs don't silently yield nothing — pass `--no-escalate`, or an explicit `--sandbox <mode>`, to prevent that.
-- Output: a real PNG at `--out`. Prints `OK codex <path>` (or a JSON line with `--json`).
-- Prereq: `codex login` must be live. The script auto-finds `codex` on PATH, else the Codex app binary under `~/AppData/Local/OpenAI/Codex/bin/`.
+Every engine checks that the returned image is new from this run and differs from the reference images after decoding, and converts non-PNG output to PNG.
 
-See `references/codex.md` for troubleshooting (refusals, timeouts, no-image_gen).
+## When every engine is out of quota
 
-## jimeng (jimeng) — images and videos
+Generate in the ChatGPT, Gemini or Grok web app in a new browser tab, download and check the image, then close the tab. An engine error is different from running out of quota; if the engine the user named fails, report it instead of switching to the web.
 
-One runner for every Dreamina async generator. It submits, polls `query_result`, and downloads the media into `--out`.
+## Checks
 
-```bash
-# text → image
-node scripts/jimeng.mjs text2image --out imgs --prompt="a cat portrait" --ratio=1:1 --resolution_type=2k
-# text → video
-node scripts/jimeng.mjs text2video --out vids --prompt="a drone shot over dunes" --poll 600
-# image-guided edit / upscale / image→video: same pattern, different subcommand + flags
-node scripts/jimeng.mjs image2image --out out --prompt="make it watercolor" <dreamina image flags>
-```
-
-- First positional arg = the dreamina subcommand: `text2image`, `image2image`, `image_upscale`, `text2video`, `image2video`, `frames2video`, `multiframe2video`, `multimodal2video`.
-- Wrapper flags: `--out <dir>` (download target), `--poll <sec>` total wait budget (default 300; raise to ~600 for video), `--interval <sec>` (default 4), `--json`.
-- **Every other flag is passed straight through to dreamina** — so use the real dreamina flag names (`--prompt=`, `--ratio=`, `--resolution_type=`, `--model_version=`, `--generate_num=`, per-command image inputs, etc.).
-- **Always confirm flags per subcommand first** — models/ratios/resolutions differ by command and version:
-  ```bash
-  ~/bin/dreamina.exe <subcommand> -h
-  ```
-- Success = media downloaded into `--out` (paths printed). Timeout prints the `submit_id` so you can resume: `dreamina query_result --submit_id=<id> --download_dir=<dir>`.
-
-See `references/jimeng.md` for the model/ratio matrix, credit notes, and the `AigcComplianceConfirmationRequired` gotcha.
-
-## Setup & runtime (per user — works for teammates too)
-
-This skill is portable: it carries **no credentials**. Each user logs in with their own accounts (codex subscription / jimeng credits are per-account). Login state lives outside the skill (`~/.codex`, `~/.dreamina_cli`), so zipping and sharing the skill folder is safe.
-
-- **Prereqs (each user):** Node (v18+) on PATH; for codex → `codex login`; for jimeng → install `dreamina` + `dreamina login`. Full steps in `SETUP.md`.
-- **Readiness check:** `node scripts/check.mjs` reports which engines are ready and what's missing. Run this first on a new machine.
-- **Binary resolution (cross-platform, no hardcoding):**
-  - `codex`: `--codex` / `$CODEX_BIN` → on PATH → newest `~/AppData/Local/OpenAI/Codex/bin/*/codex.exe` (Windows Codex app).
-  - `dreamina`: `--dreamina` / `$DREAMINA_INSTALL_DIR` → `~/bin/dreamina(.exe)` (Windows installer default) → `~/.local/bin/dreamina` (macOS/Linux default) → PATH.
-
-## References
-
-| File | Content |
-|------|---------|
-| `references/codex.md` | codex engine: how it works, sandbox, error kinds, trade-offs |
-| `references/jimeng.md` | jimeng engine: subcommands, models/ratios, credits, async rules |
+- `node scripts/check.mjs`: login status of all five engines (not remaining quota).
+- Look at every image before delivering it; sample frames from videos.
+- After changing the skill, run the fixed tests: `node evals/run.mjs <outdir> [--only id,id]`. The script checks status, aspect ratio, prompt passthrough and Muse cleanup; a judge scores each image 1–5 using the rubric in `evals/evals.json`. The change is done when every check passes and every image scores at least 4.

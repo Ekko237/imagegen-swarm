@@ -1,0 +1,77 @@
+import { spawn } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 用法：node evals/run.mjs <输出目录> [--only id,id]
+// 逐项跑 evals.json 的固定任务，核对机器能查的 checks；content 一栏留给评委看图打分
+const here = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPTS = { gemini: 'gemini-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
+const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
+
+function exec(bin, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', reject);
+    child.on('close', code => resolve({ code, stdout, stderr }));
+  });
+}
+
+async function size(file) {
+  const r = await exec('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', file]);
+  if (r.code !== 0) throw new Error(`sips failed on ${file}: ${r.stderr}`);
+  return ['pixelWidth', 'pixelHeight'].map(k => Number(r.stdout.match(new RegExp(`${k}: (\\d+)`))[1]));
+}
+
+async function main() {
+  const [outDir, ...rest] = process.argv.slice(2);
+  if (!outDir) throw new Error('usage: node evals/run.mjs <outdir> [--only id,id]');
+  const only = rest[0] === '--only' ? new Set(rest[1].split(',')) : null;
+  const spec = JSON.parse(await readFile(path.join(here, 'evals.json'), 'utf8'));
+  const out = path.resolve(outDir);
+  await mkdir(out, { recursive: true });
+  const produced = {}, results = [];
+  for (const task of spec.tasks) {
+    if (only && !only.has(task.id)) continue;
+    const file = path.join(out, `${task.id}.png`);
+    const args = task.args.map(a => a.replace(/^\{(.+)\}$/, (_, id) => {
+      if (!produced[id]) throw new Error(`${task.id} needs ${id} to run first`);
+      return produced[id];
+    }));
+    const started = Date.now();
+    const script = path.join(here, '..', 'scripts', SCRIPTS[task.engine]);
+    const r = await exec(script.endsWith('.py') ? 'python3' : 'node', [script, ...args, '--out', file]);
+    const report = JSON.parse(r.stdout.trim().split('\n').at(-1));
+    const failed = [];
+    const c = task.checks;
+    // codex、lovart 的报错字段叫 error，其余引擎叫 reason
+    const reason = report.reason ?? report.error ?? '';
+    if (report.status !== c.status) failed.push(`status ${report.status}（要 ${c.status}）：${reason}`);
+    if (c.reason_includes && !String(reason).includes(c.reason_includes)) failed.push(`reason 不含「${c.reason_includes}」`);
+    if (report.status === 'ok') {
+      produced[task.id] = file;
+      const [w, h] = await size(file);
+      report.width = w; report.height = h;
+      if (c.ratio) {
+        const [a, b] = c.ratio.split(':').map(Number);
+        if (Math.abs(w / h - a / b) / (a / b) > 0.02) failed.push(`比例 ${w}×${h} 不是 ${c.ratio}`);
+      }
+      if (c.prompt_verbatim !== undefined && report.prompt_verbatim !== c.prompt_verbatim) failed.push(`prompt_verbatim=${report.prompt_verbatim}`);
+    }
+    if (c.muse_chat_removed) {
+      const listed = JSON.parse((await exec('python3', [MUSE_PY, '--list-chats'])).stdout).chats;
+      const left = listed.filter(chat => chat.title?.startsWith('image-gen：'));
+      if (left.length) failed.push(`Muse 里还留着侧聊天：${left.map(chat => chat.title).join('、')}`);
+    }
+    results.push({ id: task.id, engine: task.engine, pass: !failed.length, failed, seconds: Math.round((Date.now() - started) / 1000),
+      file: report.status === 'ok' ? file : null, size: report.width ? `${report.width}×${report.height}` : null, content: task.content ?? null });
+    console.log(JSON.stringify(results.at(-1)));
+  }
+  await writeFile(path.join(out, 'results.json'), JSON.stringify({ pass_rule: spec.pass_rule, content_rubric: spec.content_rubric, results }, null, 2));
+  if (results.some(row => !row.pass)) process.exitCode = 1;
+}
+
+main().catch(e => { console.error(e.stack); process.exitCode = 1; });

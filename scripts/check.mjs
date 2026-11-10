@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// check.mjs — readiness doctor for the image-gen skill.
-// Run after unzipping: `node scripts/check.mjs`
-// Reports Node, codex (+login), and dreamina/jimeng (+login) status per engine.
-
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
@@ -33,6 +29,9 @@ async function resolveCodex() {
     c.on("close", (code) => r(code === 0));
   });
   if (onPath) return "codex";
+  for (const exe of ["/Applications/Codex.app/Contents/Resources/codex", path.join(homedir(), "Applications", "Codex.app", "Contents", "Resources", "codex")]) {
+    if (existsSync(exe)) return exe;
+  }
   const binDir = path.join(homedir(), "AppData", "Local", "OpenAI", "Codex", "bin");
   if (existsSync(binDir)) {
     let best = null, m = 0;
@@ -45,23 +44,12 @@ async function resolveCodex() {
   return null;
 }
 
-function resolveDreamina() {
-  const exe = process.platform === "win32" ? "dreamina.exe" : "dreamina";
-  const cands = [];
-  if (process.env.DREAMINA_INSTALL_DIR) cands.push(path.join(process.env.DREAMINA_INSTALL_DIR, exe));
-  cands.push(path.join(homedir(), "bin", exe), path.join(homedir(), ".local", "bin", exe));
-  for (const c of cands) if (existsSync(c)) return c;
-  return "dreamina"; // may still resolve via PATH
-}
-
 async function main() {
   line("image-gen readiness check\n==========================");
 
-  // Node
   line(`Node: ${process.version}  (${process.platform}/${process.arch})`);
   line(ok("node is running this script"));
 
-  // Codex engine (images)
   line("\n[codex engine — images]");
   const codex = await resolveCodex();
   let codexReady = false;
@@ -75,27 +63,61 @@ async function main() {
     line(no("codex not found — install @openai/codex (npm i -g @openai/codex) or the Codex app, then: codex login"));
   }
 
-  // Jimeng engine (images + video)
-  line("\n[jimeng engine — Dreamina images + video]");
-  const dreamina = resolveDreamina();
-  const dExists = dreamina !== "dreamina" || (await probe("dreamina", ["version"])).code === 0;
-  let jimengReady = false;
-  if (dExists) {
-    const cred = await probe(dreamina, ["user_credit"]);
-    let credits = null;
-    try { credits = JSON.parse(cred.out.slice(cred.out.indexOf("{"), cred.out.lastIndexOf("}") + 1)).total_credit; } catch {}
-    line(ok(`dreamina found: ${dreamina}`));
-    if (credits != null) { line(ok(`logged in — ${credits} credits available`)); jimengReady = true; }
-    else line(no(`not logged in (or user_credit failed) — run: dreamina login   [output: ${cred.out.trim().slice(0, 120)}]`));
+  line("\n[grok engine — images + edits + video]");
+  const g = await probe("grok", ["models"]);
+  const grokReady = g.code === 0 && /grok-[\w.-]+/i.test(g.out);
+  line(grokReady ? ok("grok models lists models — logged in") : no("grok models failed or returned no models; check Grok login/network/sandbox"));
+
+  line("\n[gemini engine — images + edits (Antigravity agy)]");
+  const agy = process.env.AGY_BIN || path.join(homedir(), ".local", "bin", "agy");
+  let geminiReady = false;
+  if (existsSync(agy)) {
+    const m = await probe(agy, ["models"]);
+    geminiReady = m.code === 0 && /gemini-[\w.-]+/i.test(m.out);
+    line(geminiReady ? ok(`agy models lists Gemini models — logged in (${agy})`) : no("agy models failed or listed no Gemini model; sign in to Antigravity"));
   } else {
-    line(no("dreamina not found — install: curl -fsSL https://jimeng.jianying.com/cli | bash  (run in Git Bash on Windows), then: dreamina login"));
+    line(no(`agy not found at ${agy} — install the Antigravity CLI and sign in`));
   }
 
-  // Summary
+  line("\n[muse engine — images (Muse cloud computer)]");
+  const musePy = path.join(path.dirname(new URL(import.meta.url).pathname), "muse-image.py");
+  const d = await probe("python3", [musePy, "--list-chats"]);
+  let report = null;
+  try { report = JSON.parse(d.out.slice(d.out.indexOf("{"), d.out.lastIndexOf("}") + 1)); } catch {}
+  const museReady = d.code === 0 && Array.isArray(report?.chats);
+  line(museReady ? ok("muse-image.py --list-chats lists side chats — logged in") : no(`not logged in to Muse; run: python3 ${musePy} --login (needs: pip install playwright && playwright install chromium)`));
+
+  line("\n[lovart engine — images]");
+  const lv = [process.env.LOVART_LV, path.join(homedir(), "tools", "lovart-skill", "lv")]
+    .filter(Boolean).find((p) => existsSync(p));
+  let lovartReady = false;
+  if (lv) {
+    line(ok(`lv wrapper found: ${lv}`));
+    const q = await probe(lv, ["query-mode"]);
+    let mode = null, unlimited = null;
+    try {
+      const j = JSON.parse(q.out.slice(q.out.indexOf("{"), q.out.lastIndexOf("}") + 1));
+      mode = j.mode; unlimited = j.detail && j.detail.unlimited;
+    } catch {}
+    if (mode) {
+      line(ok(`key valid — billing mode ${mode} (${unlimited ? "free, may queue" : "spends credits, no queue"})`));
+      lovartReady = true;
+    } else {
+      line(no("key invalid or unreachable — create one in the Lovart avatar menu → 「Lovart 龙虾」/ OpenClaw for Lovart " +
+              `→ Create API Key, then write ~/.lovart/env`));
+    }
+  } else {
+    line(no("lv not found — git clone https://github.com/lovartai/lovart-skill ~/tools/lovart-skill, " +
+            "then create ~/.lovart/env (AK/SK from the avatar menu →「Lovart 龙虾」→ Create API Key)"));
+  }
+
   line("\n==========================");
   line(`codex  (images):        ${codexReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`jimeng (images+video):  ${jimengReady ? "READY ✅" : "NOT READY ❌"}`);
-  if (!codexReady && !jimengReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
+  line(`grok   (images+video):  ${grokReady ? "READY ✅" : "NOT READY ❌"}`);
+  line(`gemini (images+edits):  ${geminiReady ? "READY ✅" : "NOT READY ❌"}`);
+  line(`muse   (images):        ${museReady ? "READY ✅" : "NOT READY ❌"}`);
+  line(`lovart (images):        ${lovartReady ? "READY ✅" : "NOT READY ❌"}`);
+  if (!codexReady && !grokReady && !geminiReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
   line("\nAt least one engine is ready. See SETUP.md for anything marked ❌.");
 }
 
