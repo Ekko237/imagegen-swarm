@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +51,8 @@ function run(bin, args, cwd) {
 }
 
 async function main() {
+  const off = path.join(process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off'), 'jimeng');
+  if (existsSync(off)) throw new Error(`jimeng is turned off (${off}); delete that file to turn it back on`);
   const start = Date.now(), o = parse(process.argv.slice(2));
   const prompt = (o.promptFile ? await readFile(o.promptFile, 'utf8') : o.prompt).trim();
   if (!prompt) throw new Error('empty prompt');

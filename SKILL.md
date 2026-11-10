@@ -19,6 +19,7 @@ node scripts/batch.mjs --jobs jobs.json --out out/
 - A failed image (refusal, timeout, …) is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). An image no engine can take counts as failed.
 - Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and `out/batch-results.json` records which engine made each image and how long it took. Exit code is non-zero if anything failed.
 - When the user names an engine, run only that one with `--engines`.
+- To pause an engine, create `~/.config/image-gen/engine-off/<engine>` (or set `IMAGE_GEN_ENGINE_OFF` to another folder); batch, check and evals skip it. Delete the file to turn it back on.
 
 ## Engines
 

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,9 @@ const ENGINES = {
   muse: { script: 'muse-image.py', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: Infinity },
 };
 // Muse 只有一个专用浏览器，其余引擎各开两条通道；排在前面的先接活
+// 停用开关：~/.config/image-gen/engine-off/<引擎名> 存在就不开这家的通道（IMAGE_GEN_ENGINE_OFF 可改目录）
+const OFF_DIR = process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off');
+const OFF = existsSync(OFF_DIR) ? readdirSync(OFF_DIR) : [];
 const DEFAULT_LANES = { gemini: 2, jimeng: 2, codex: 2, grok: 2, lovart: 2, muse: 1 };
 // 这类报错说明这家整体用不了（额度、登录、安装），不是这一张的问题
 const ENGINE_DOWN = /quota|credit|积分|余额|rate.?limit|usage limit|weekly limit|exhausted|insufficient|not enough|429|unauthori|not logged|log ?in|ComplianceConfirmation|not_configured|not_installed|not found:|ENOENT/i;
@@ -40,6 +44,7 @@ function parse(argv) {
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
   for (const e of o.engines) if (!ENGINES[e]) throw new Error(`unknown engine: ${e}`);
+  o.engines = o.engines.filter(e => !OFF.includes(e));
   return o;
 }
 

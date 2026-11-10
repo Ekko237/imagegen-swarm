@@ -85,10 +85,16 @@ async function main() {
 
   line("\n[jimeng engine — images + edits + video (Dreamina CLI)]");
   const dreamina = [process.env.DREAMINA_INSTALL_DIR && path.join(process.env.DREAMINA_INSTALL_DIR, process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), "bin", process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), ".local", "bin", "dreamina")].filter(Boolean).find((p) => existsSync(p)) || "dreamina";
-  const credit = await probe(dreamina, ["user_credit"]);
-  const creditMatch = credit.out.match(/"total_credit"\s*:\s*(\d+)/);
-  const jimengReady = credit.code === 0 && Boolean(creditMatch);
-  line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install: curl -fsSL https://jimeng.jianying.com/cli | bash, then: dreamina login"));
+  const offFile = path.join(process.env.IMAGE_GEN_ENGINE_OFF || path.join(homedir(), ".config", "image-gen", "engine-off"), "jimeng");
+  let jimengReady = false;
+  if (existsSync(offFile)) {
+    line(no(`turned off (${offFile}); not checked`));
+  } else {
+    const credit = await probe(dreamina, ["user_credit"]);
+    const creditMatch = credit.out.match(/"total_credit"\s*:\s*(\d+)/);
+    jimengReady = credit.code === 0 && Boolean(creditMatch);
+    line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install: curl -fsSL https://jimeng.jianying.com/cli | bash, then: dreamina login"));
+  }
 
   line("\n[muse engine — images (Muse cloud computer)]");
   const musePy = path.join(path.dirname(new URL(import.meta.url).pathname), "muse-image.py");

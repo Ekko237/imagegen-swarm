@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const SCRIPTS = { gemini: 'gemini-image.mjs', jimeng: 'jimeng-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
+const OFF_DIR = process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off');
+const OFF = existsSync(OFF_DIR) ? readdirSync(OFF_DIR) : [];
 const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
 
 function exec(bin, args) {
@@ -38,6 +42,8 @@ async function main() {
   const produced = {}, results = [];
   for (const task of spec.tasks) {
     if (only && !only.has(task.id)) continue;
+    // 停用的引擎不跑，记为跳过
+    if (OFF.includes(task.engine)) { console.log(JSON.stringify({ id: task.id, engine: task.engine, skipped: 'engine turned off' })); continue; }
     if (task.engine === 'batch') {
       // 抢活：清单交给 batch.mjs，查全部出完、比例都对（batch 自己核对）、至少几家引擎接到活
       const dir = path.join(out, task.id);
