@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**不需要 API 密钥——在 Claude Code 里，用你已有的账号（Codex、即梦、Grok、Gemini、Muse）出图，用即梦和 Grok 出视频；Lovart 用官方 AK/SK，存在本机。** 这是一个 Claude Code / Codex 技能：一批图同时交给这六家，哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。
+**用现有的 Codex 和即梦账号，就能在 Claude Code 里出图，这两家无需 API 密钥。即梦也支持生成视频；Grok、Gemini、Muse 使用各自的账号登录，Lovart 使用官方 AK/SK，凭据保存在本机。** 这是一个 Claude Code / Codex 技能：一批图同时交给这六家，哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。
 
 [English](README.md)
 
@@ -39,8 +39,7 @@
 
 ## 安装
 
-至少要登录一家引擎。
-On Windows see SETUP.md.
+生成前至少登录一个引擎；Lovart 需要官方 AK/SK。安装文件夹命名为 `imagegen-swarm`，与 `SKILL.md` 中的技能名一致。Windows 安装和引擎登录步骤见 [SETUP.md](SETUP.md)。
 
 ```bash
 git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm   # Claude Code

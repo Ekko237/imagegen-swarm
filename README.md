@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**No API key needed — inside Claude Code, generate images with the accounts you already have (Codex, Jimeng/即梦, Grok, Gemini and Muse), and videos with Jimeng and Grok; Lovart uses its official AK/SK keys, stored locally.** A Claude Code / Codex skill that hands a list of images to all six engines in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work.
+**Generate images in Claude Code with your existing Codex and Jimeng accounts, with no API keys for those engines. Jimeng also generates videos; Grok, Gemini and Muse use their own account logins, and Lovart uses its official AK/SK keys, stored locally.** A Claude Code / Codex skill that hands a list of images to all six engines in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work.
 
 [中文说明](README.zh-CN.md)
 
@@ -39,8 +39,7 @@ You only need one. Every engine you add makes batches faster.
 
 ## Install
 
-At least one engine login is required.
-On Windows see SETUP.md.
+Log in to at least one engine before generating; Lovart requires its official AK/SK. Name the installation folder `imagegen-swarm`, matching the skill name in `SKILL.md`. Windows setup and engine login instructions are in [SETUP.md](SETUP.md).
 
 ```bash
 git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm   # Claude Code
