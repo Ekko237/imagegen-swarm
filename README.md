@@ -1,8 +1,24 @@
 # imagegen-swarm
 
-**Generate images in Claude Code with your existing Codex and Jimeng accounts, with no API keys for those engines. Jimeng also generates videos; Grok, Gemini and Muse use their own account logins, and Lovart uses its official AK/SK keys, stored locally.** A Claude Code / Codex skill that hands a list of images to all six engines in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work.
+[![MIT license](https://img.shields.io/github/license/Ekko237/imagegen-swarm)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Ekko237/imagegen-swarm)](https://github.com/Ekko237/imagegen-swarm/releases/latest)
+[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG.md-blue)](CHANGELOG.md)
 
 [中文说明](README.zh-CN.md)
+
+**No image API key for most engines.**
+
+Generate images in Claude Code with the Codex and Jimeng accounts you already have.
+
+Jimeng also generates videos.
+Grok, Gemini and Muse use their own account logins.
+Lovart uses its official AK/SK, stored on your machine.
+
+This is a Claude Code and Codex skill.
+It hands a list of images to all six engines at once.
+A free engine takes the next image.
+A batch finishes in minutes.
+When one engine runs out of quota, the others pick up its work.
 
 ![50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
 
@@ -39,18 +55,46 @@ You only need one. Every engine you add makes batches faster.
 
 ## Install
 
-Log in to at least one engine before generating; Lovart requires its official AK/SK. Name the installation folder `imagegen-swarm`, matching the skill name in `SKILL.md`. Windows setup and engine login instructions are in [SETUP.md](SETUP.md).
-
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm   # Claude Code
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm    # Codex
-python3 -m pip install pillow
-node ~/.claude/skills/imagegen-swarm/scripts/check.mjs                                    # shows which engines are ready
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm
 ```
 
-Requirements: Node.js 18+ and Python 3 with Pillow, on macOS, Windows or Linux. Log in to the engines you want with [SETUP.md](SETUP.md).
+Requirements: Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`), on macOS, Windows or Linux. Log in to at least one engine before you generate. Lovart needs its official AK/SK. The folder must be named `imagegen-swarm`.
 
-Already installed under `image-gen`? Move `~/.claude/skills/image-gen` or `~/.codex/skills/image-gen` to `imagegen-swarm`. The old folder name collides with other skills.
+Verify it works: ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run records which engine made it.
+
+Update: run `git pull` inside the skill folder.
+
+<details>
+<summary>Codex, a plain folder, Windows, and plugins</summary>
+
+### Codex
+
+```bash
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm
+```
+
+Update with `git pull` inside that folder. Requirements are the same.
+
+### Plain folder
+
+Clone or copy this repo and name the folder `imagegen-swarm`. An older install named `image-gen` should be renamed to `imagegen-swarm`. The old name collides with other skills.
+
+### Windows
+
+Use the same clone. On Windows the scripts call `python`, or set `PYTHON`. Install Pillow with `python -m pip install pillow`. The Jimeng installer needs Git Bash. Engine login steps are in [SETUP.md](SETUP.md).
+
+### Plugins
+
+Plugin manifests for Claude Code are in `.claude-plugin/`. Plugin manifests for Codex are in `.codex-plugin/` and `.agents/plugins/marketplace.json`. The folder clone above is the install this README documents.
+
+See which engines are ready:
+
+```bash
+node scripts/check.mjs
+```
+
+</details>
 
 ## Usage
 
@@ -80,18 +124,45 @@ node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ## Layout
 
 ```
-├─ SKILL.md      skill definition and engine guide
-├─ SETUP.md      install and login per engine
-├─ AGENTS.md     entry point for an agent handed this repo
-├─ scripts/      batch.mjs (work-stealing), one script per engine, jimeng.mjs (Dreamina runner), imgtool.py, check.mjs
-├─ references/   codex.md, lovart.md
-├─ evals/        fixed tasks with a scoring rubric, run.mjs
-└─ docs/         README images
+├─ SKILL.md          skill definition and engine guide
+├─ SETUP.md          install and login per engine
+├─ AGENTS.md         entry point for an agent handed this repo
+├─ CHANGELOG.md      release notes
+├─ scripts/          batch.mjs (work-stealing), one script per engine, jimeng.mjs (Dreamina runner), imgtool.py, check.mjs
+├─ references/       codex.md, lovart.md
+├─ evals/            fixed tasks with a scoring rubric, run.mjs
+├─ docs/             README images
+├─ .claude-plugin/   Claude Code plugin manifest
+├─ .codex-plugin/    Codex plugin manifest
+├─ .agents/          Codex marketplace manifest
+└─ .github/          CI and bug report template
 ```
 
 ## Sample output
 
 ![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
+
+## Common questions
+
+**Do I need every engine logged in?**
+
+No. One is enough. Every engine you add makes a batch faster. Set up only the ones you want. `node scripts/check.mjs` shows which ones are ready. An engine with no login is shut down, and its job goes back to the queue.
+
+**Is my login safe?**
+
+The skill contains no accounts or keys. Each engine keeps its login in its own folder. Do not bundle those folders when you share the skill. Lovart's AK/SK go in `~/.lovart/env` with mode `600`, not in chat and not in git. The folders are listed in [SETUP.md](SETUP.md).
+
+**What happens when a quota runs out?**
+
+An engine that reports exhausted quota, no login, or no install is shut down. The image it held goes back to the queue. A failed image is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). When every engine is out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
+
+**Do I need an API key?**
+
+Most engines, no. Codex and Jimeng use the accounts you already have. Grok, Gemini and Muse use their own account logins. Lovart needs its official AK/SK, stored on your machine.
+
+**Which agents does this run in?**
+
+Claude Code and Codex.
 
 ## Credits
 
@@ -101,3 +172,4 @@ The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrap
 
 MIT, see [LICENSE](LICENSE).
 
+Tried it? Open an issue and tell me what broke or what you made.
