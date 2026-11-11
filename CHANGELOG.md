@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 - 2026-11-11
+
+- **Symlinked installs run again.** `batch.mjs` and `gemini-image.mjs` decide they are the entrypoint by comparing real paths, so a launch through a symlinked script or a symlinked skill folder (the usual `~/.claude/skills/imagegen-swarm` install) still runs. Importing either file from a test does not start a run.
+
 ## 1.1.0 - 2026-11-11
 
 Reliability fixes for long batches. Existing job files, flags, and output paths behave as before.

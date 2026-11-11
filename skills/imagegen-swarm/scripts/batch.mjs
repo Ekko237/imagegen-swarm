@@ -3,7 +3,8 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { isInvokedDirectly } from './direct.mjs';
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
 // 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
@@ -336,5 +337,4 @@ async function main() {
   if (failed.length) process.exitCode = 1;
 }
 
-const isDirect = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isDirect) main().catch(e => { console.log(JSON.stringify({ status: 'error', reason: e.message })); process.exitCode = 1; });
+if (isInvokedDirectly(import.meta.url)) main().catch(e => { console.log(JSON.stringify({ status: 'error', reason: e.message })); process.exitCode = 1; });

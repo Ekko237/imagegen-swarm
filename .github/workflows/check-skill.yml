@@ -24,5 +24,6 @@ jobs:
           python3 -m py_compile skills/imagegen-swarm/scripts/*.py
       - name: Reliability tests
         run: |
+          # reliability.test.mjs also launches batch.mjs and gemini-image.mjs through symlinks
           node skills/imagegen-swarm/scripts/reliability.test.mjs
           python3 skills/imagegen-swarm/scripts/reliability_rename_test.py
