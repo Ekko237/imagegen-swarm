@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**Use every AI image quota you already pay for, all at once.** A Claude Code / Codex skill that hands a list of images to Codex, Grok, Gemini, Jimeng, Muse and Lovart in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work. No image API keys.
+**No API key needed: use the Codex and Jimeng (即梦) accounts you already have to generate images and videos inside Claude Code.** The same Claude Code / Codex skill also runs Grok, Gemini and Muse from the accounts you already have. Lovart uses its official CLI access key and secret key, stored only on your machine in `~/.lovart`. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work.
 
 [中文说明](README.zh-CN.md)
 
@@ -39,14 +39,18 @@ You only need one. Every engine you add makes batches faster.
 
 ## Install
 
+At least one engine login is required.
+
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/image-gen   # Claude Code
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/image-gen    # Codex
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm  # Claude Code
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm   # Codex
 python3 -m pip install pillow
-node ~/.claude/skills/image-gen/scripts/check.mjs                                    # shows which engines are ready
+node ~/.claude/skills/imagegen-swarm/scripts/check.mjs                                   # shows which engines are ready
 ```
 
 Requirements: Node.js 18+ and Python 3 with Pillow, on macOS, Windows or Linux. Log in to the engines you want with [SETUP.md](SETUP.md).
+
+Windows users should see [SETUP.md](SETUP.md).
 
 ## Usage
 

@@ -87,7 +87,7 @@ async function main() {
       refHashes.add(await fingerprint(copy));
     }
     // agy 主代理没有 generate_image，出图交给内置的 image-generator 子代理；要求它原样转交提示词、只出一次
-    const instruction = 'Delegate to your image-generator subagent. Do not use the image-gen skill or any other image engine. Tell the subagent: call generate_image exactly once, ' +
+    const instruction = 'Delegate to your image-generator subagent. Do not use the imagegen-swarm skill or any other image engine. Tell the subagent: call generate_image exactly once, ' +
       `with AspectRatio ${JSON.stringify(o.aspect)}, ImageName "result"` +
       (refs.length ? `, ImagePaths ${JSON.stringify(refs)}` : '') +
       ', and Prompt set to the exact text between the markers below, copied character for character with no rewriting, no additions and no retries. ' +
