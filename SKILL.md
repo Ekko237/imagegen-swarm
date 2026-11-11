@@ -1,9 +1,9 @@
 ---
-name: image-gen
+name: imagegen-swarm
 description: Generate images, reference edits and videos with Codex, Grok Imagine, Gemini (Antigravity), Jimeng (Dreamina), Muse or Lovart. Use for "generate an image", "draw", "edit this image", "make a video", text to image/video, or requests naming codex, grok, gemini, nano banana, antigravity, jimeng, dreamina, muse or lovart. Not for ordinary local image processing.
 ---
 
-# image-gen
+# imagegen-swarm
 
 The core is work-stealing: write the images you need as a job list and hand it to `batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free takes the next image it can handle, so every engine's quota is used and the batch finishes as fast as possible. A single image goes through `batch.mjs` too: the first engine in line takes it, and if that engine is out of quota the next one does.
 
@@ -20,7 +20,7 @@ node scripts/batch.mjs --jobs jobs.json --out out/
 - A failed image (refusal, timeout, …) is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). An image no engine can take counts as failed.
 - Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and `out/batch-results.json` records which engine made each image and how long it took. Exit code is non-zero if anything failed.
 - When the user names an engine, run only that one with `--engines`.
-- To pause an engine, create `~/.config/image-gen/engine-off/<engine>` (or set `IMAGE_GEN_ENGINE_OFF` to another folder); batch, check and evals skip it. Delete the file to turn it back on.
+- To pause an engine, create `~/.config/imagegen-swarm/engine-off/<engine>` (or set `IMAGE_GEN_ENGINE_OFF` to another folder); batch, check and evals skip it. Delete the file to turn it back on.
 
 ## Engines
 
@@ -41,7 +41,7 @@ Each engine script also works on its own (run `.mjs` with node, `.py` with pytho
 - **grok**: read `~/.grok/bundled/skills/imagine/SKILL.md` first. No `--ref` → text to image; `--ref` → edit (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio` cannot be auto). Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user rather than changing the setting.
 - **jimeng**: uses the official Dreamina CLI (`dreamina`). No `--ref` → text to image (2K); `--ref` → edit; `--video` → text-to-video without references, or image-to-video from the first reference (default seedance2.0fast, 720p, 5 s; change with `--model`). Submit, polling and download go through `jimeng.mjs` in the same folder, which can also run any Dreamina generator directly. If a model returns `AigcComplianceConfirmationRequired`, the user must authorize it once on the Dreamina website.
 - **gemini**: uses the Antigravity CLI's (`agy`) built-in `generate_image`, called by its image-generator subagent. `--aspect` accepts 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9. Output includes `tool_prompt` and `prompt_verbatim`; `false` means the subagent rewrote the prompt, so mention it when delivering.
-- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/image-gen/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. If Muse asks for approval, the script answers immediately: it clicks "Allow once" only when every request refers to this run's save folder `/home/hatch/workspace/image-gen`, and otherwise fails with the request text. One process at a time can use the browser.
+- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/imagegen-swarm/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. If Muse asks for approval, the script answers immediately: it clicks "Allow once" only when every request refers to this run's save folder `/home/hatch/workspace/imagegen-swarm`, and otherwise fails with the request text. One process at a time can use the browser.
 - **lovart**: opens a fresh thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`. See [references/lovart.md](references/lovart.md).
 
 Every engine checks that the returned image is new from this run and differs from the reference images after decoding, and converts non-PNG output to PNG.

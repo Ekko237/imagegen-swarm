@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**把你已经付了钱的几家 AI 出图额度同时用起来。** 这是一个 Claude Code / Codex 技能：一批图同时交给 Codex、Grok、Gemini、即梦、Muse、Lovart，哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。不需要任何出图 API 密钥。
+**不用 API key：用你现有的 Codex 和即梦账号，就能在 Claude Code 里出图、出视频。** 同一个 Claude Code / Codex 技能也能用你已有的 Grok、Gemini、Muse 账号。Lovart 用官方命令行的 AK/SK，只存在你本机的 `~/.lovart`，不会进这个仓库。哪家空着就接下一张，一批图几分钟出完；某家额度用完，它的活自动转给别家。
 
 [English](README.md)
 
@@ -39,14 +39,18 @@
 
 ## 安装
 
+至少需要登录一个引擎。
+
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/image-gen   # Claude Code
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/image-gen    # Codex
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm  # Claude Code
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm   # Codex
 python3 -m pip install pillow
-node ~/.claude/skills/image-gen/scripts/check.mjs                                    # 看哪几家已经能用
+node ~/.claude/skills/imagegen-swarm/scripts/check.mjs                                   # 看哪几家已经能用
 ```
 
 需要 Node.js 18+ 和装了 Pillow 的 Python 3，macOS、Windows、Linux 都能用。各家怎么登录见 [SETUP.md](SETUP.md)（英文）。
+
+Windows 用户请看 [SETUP.md](SETUP.md)。
 
 ## 用法
 

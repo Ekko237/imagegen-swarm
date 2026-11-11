@@ -19,8 +19,8 @@ const ENGINES = {
 };
 // 通道数以 8GB 内存为基准（M1 实测同时 12 份单张不变慢、内存还剩约 30%）：Gemini、Codex 6 条，即梦、Grok 4 条，Lovart 2 条；
 // 按本机内存等比例增减，每家至少 1 条、最多 1.5 倍，Muse 只有一个专用浏览器固定 1 条；排在前面的先接活
-// 停用开关：~/.config/image-gen/engine-off/<引擎名> 存在就不开这家的通道（IMAGE_GEN_ENGINE_OFF 可改目录）
-const OFF_DIR = process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off');
+// 停用开关：~/.config/imagegen-swarm/engine-off/<引擎名> 存在就不开这家的通道（IMAGE_GEN_ENGINE_OFF 可改目录）
+const OFF_DIR = process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'imagegen-swarm', 'engine-off');
 const OFF = existsSync(OFF_DIR) ? readdirSync(OFF_DIR) : [];
 // 各家单张耗时的起始估计（秒），开跑后按本批实测的中位数更新
 const TYPICAL_SECONDS = { gemini: 30, jimeng: 35, codex: 35, grok: 55, lovart: 45, muse: 110 };

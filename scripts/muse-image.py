@@ -21,8 +21,8 @@ from playwright.sync_api import sync_playwright
 # 图片附件卡片的名字在缩略图 img 的 alt 上；侧聊天行 [data-testid=hatch-thread-row]（第 0 行是主聊天），右键菜单 Rename / Delete；
 # 待确认在 button「Approvals」标签页；文件库 /library/files，根目录是云电脑的 /home/hatch，下载按钮叫「Download」。
 BASE = "https://muse.ai"
-PROFILE = Path(os.environ.get("IMAGE_GEN_MUSE_PROFILE", Path.home() / ".config" / "image-gen" / "muse-browser"))
-REMOTE_DIR = "/home/hatch/workspace/image-gen"
+PROFILE = Path(os.environ.get("IMAGE_GEN_MUSE_PROFILE", Path.home() / ".config" / "imagegen-swarm" / "muse-browser"))
+REMOTE_DIR = "/home/hatch/workspace/imagegen-swarm"
 RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9")
 THREAD_RE = re.compile(r"/thread/([0-9a-f-]{36})")
 IDLE_SECONDS = 8
@@ -294,7 +294,7 @@ def generate(args):
             try:
                 chat, since = send(page, text, refs)
                 # Muse 会去掉标题两头的空格
-                rename(page, chat, (args.title or f"image-gen：{prompt[:24]}").strip())
+                rename(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip())
                 open_url(page, f"{BASE}/thread/{chat}")
                 replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")

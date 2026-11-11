@@ -1,6 +1,6 @@
 # imagegen-swarm setup
 
-Put this folder, named `image-gen`, in your agent's skills directory: `~/.claude/skills/image-gen/` for Claude Code, `~/.codex/skills/image-gen/` for Codex. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its own folder, so never bundle those folders when you share the skill. Set up only the engines you want.
+Put this folder, named `imagegen-swarm`, in your agent's skills directory: `~/.claude/skills/imagegen-swarm/` for Claude Code, `~/.codex/skills/imagegen-swarm/` for Codex. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its own folder, so never bundle those folders when you share the skill. Set up only the engines you want.
 
 | Engine | Install and log in | Login lives in |
 |---|---|---|
@@ -8,7 +8,7 @@ Put this folder, named `image-gen`, in your agent's skills directory: `~/.claude
 | grok | Install the Grok Build CLI and log in; `grok models` should list models | `~/.grok` |
 | gemini | Install the Antigravity CLI (default `~/.local/bin/agy`, or set `AGY_BIN` / `--agy`) and log in; `agy models` should list Gemini models | `~/.gemini` |
 | jimeng | `curl -fsSL https://jimeng.jianying.com/cli | bash` (Git Bash on Windows), reopen the terminal, then `dreamina login` (scan with the Douyin app); `dreamina user_credit` should show your credits. The script looks in `DREAMINA_INSTALL_DIR`, `~/bin`, `~/.local/bin`, then PATH | `~/.dreamina_cli` |
-| muse | `pip install playwright && playwright install chromium`, then `python3 scripts/muse-image.py --login` and sign in to muse.ai in the window that opens; afterwards `--list-chats` should list your side chats | `~/.config/image-gen/muse-browser` |
+| muse | `pip install playwright && playwright install chromium`, then `python3 scripts/muse-image.py --login` and sign in to muse.ai in the window that opens; afterwards `--list-chats` should list your side chats | `~/.config/imagegen-swarm/muse-browser` |
 | lovart | See below | `~/.lovart` |
 
 ## Lovart
