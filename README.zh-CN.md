@@ -12,6 +12,10 @@
   <a href="README.md">English</a>
 </p>
 
+<p align="center">
+  <img src="docs/efficiency.png" alt="50 张图 2.3 分钟出完，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测" width="100%" />
+</p>
+
 **大多数引擎不需要图片 API 密钥。**
 
 用你现有的 Codex 和即梦账号，就能在 Claude Code 里出图。
@@ -25,12 +29,6 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 哪家空着，就接下一张。
 一批图几分钟出完。
 某家额度用完，别家接过它的活。
-
-<p align="center">
-  <img src="docs/showcase.webp" alt="imagegen-swarm 画的图，每张标着是哪家引擎画的" width="100%" />
-</p>
-
-![50 张图 2.3 分钟出完，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测](docs/efficiency.png)
 
 ## 活是怎么分的
 
@@ -151,6 +149,14 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
 每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
+
+## 样例输出
+
+各家引擎画的样例图。
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="imagegen-swarm 画的图，每张标着是哪家引擎画的" width="100%" />
+</p>
 
 ## 常见问题
 

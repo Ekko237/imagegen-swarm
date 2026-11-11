@@ -12,18 +12,16 @@
   <a href="README.zh-CN.md">中文说明</a>
 </p>
 
+<p align="center">
+  <img src="docs/efficiency.png" alt="50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
+</p>
+
 **A Claude Code and Codex skill that runs batch image and video generation across six engines in parallel.** No image API key needed for most engines—use the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have.
 
 * **Codex, Jimeng, Grok, Gemini, Muse**: use your existing account logins. (Jimeng also generates videos.)
 * **Lovart**: uses its official AK/SK, stored on your machine.
 
 Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue, finishing batches in minutes. When one engine hits its quota limit, the remaining engines pick up its work.
-
-<p align="center">
-  <img src="docs/showcase.webp" alt="Images drawn by imagegen-swarm, each labeled with the engine that made it" width="100%" />
-</p>
-
-![50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
 
 ## How the work is shared
 
@@ -146,6 +144,14 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are optional. Output saves to `out/<id>.png`, progress streams as JSON lines, and `out/batch-results.json` records which engine made each image.
 
 You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
+
+## Sample output
+
+Sample images drawn by the engines.
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="Images drawn by imagegen-swarm, each labeled with the engine that made it" width="100%" />
+</p>
 
 ## Common questions
 
