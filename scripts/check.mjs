@@ -10,6 +10,13 @@ const ok = (m) => `  ✅ ${m}`;
 const no = (m) => `  ❌ ${m}`;
 const line = (m) => process.stdout.write(m + "\n");
 
+function turnedOff(engine) {
+  const dirs = process.env.IMAGE_GEN_ENGINE_OFF
+    ? [process.env.IMAGE_GEN_ENGINE_OFF]
+    : [path.join(homedir(), ".config", "imagegen-swarm", "engine-off"), path.join(homedir(), ".config", "image-gen", "engine-off")];
+  return dirs.map((dir) => path.join(dir, engine)).find((file) => existsSync(file)) || null;
+}
+
 function probe(bin, args) {
   return new Promise((res) => {
     let out = "";
@@ -45,7 +52,7 @@ async function resolveCodex() {
 }
 
 async function main() {
-  line("image-gen readiness check\n==========================");
+  line("imagegen-swarm readiness check\n==============================");
 
   line(`Node: ${process.version}  (${process.platform}/${process.arch})`);
   line(ok("node is running this script"));
@@ -85,9 +92,9 @@ async function main() {
 
   line("\n[jimeng engine — images + edits + video (Dreamina CLI)]");
   const dreamina = [process.env.DREAMINA_INSTALL_DIR && path.join(process.env.DREAMINA_INSTALL_DIR, process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), "bin", process.platform === "win32" ? "dreamina.exe" : "dreamina"), path.join(homedir(), ".local", "bin", "dreamina")].filter(Boolean).find((p) => existsSync(p)) || "dreamina";
-  const offFile = path.join(process.env.IMAGE_GEN_ENGINE_OFF || path.join(homedir(), ".config", "image-gen", "engine-off"), "jimeng");
+  const offFile = turnedOff("jimeng");
   let jimengReady = false;
-  if (existsSync(offFile)) {
+  if (offFile) {
     line(no(`turned off (${offFile}); not checked`));
   } else {
     const credit = await probe(dreamina, ["user_credit"]);

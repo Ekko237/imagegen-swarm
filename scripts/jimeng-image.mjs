@@ -51,8 +51,11 @@ function run(bin, args, cwd) {
 }
 
 async function main() {
-  const off = path.join(process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off'), 'jimeng');
-  if (existsSync(off)) throw new Error(`jimeng is turned off (${off}); delete that file to turn it back on`);
+  const offDirs = process.env.IMAGE_GEN_ENGINE_OFF
+    ? [process.env.IMAGE_GEN_ENGINE_OFF]
+    : [path.join(homedir(), '.config', 'imagegen-swarm', 'engine-off'), path.join(homedir(), '.config', 'image-gen', 'engine-off')];
+  const off = offDirs.map(dir => path.join(dir, 'jimeng')).find(file => existsSync(file));
+  if (off) throw new Error(`jimeng is turned off (${off}); delete that file to turn it back on`);
   const start = Date.now(), o = parse(process.argv.slice(2));
   const prompt = (o.promptFile ? await readFile(o.promptFile, 'utf8') : o.prompt).trim();
   if (!prompt) throw new Error('empty prompt');
