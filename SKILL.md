@@ -1,9 +1,11 @@
 ---
 name: imagegen-swarm
-description: Generate images, reference edits and videos with Codex, Grok Imagine, Gemini (Antigravity), Jimeng (Dreamina), Muse or Lovart. Use for "generate an image", "draw", "edit this image", "make a video", text to image/video, or requests naming codex, grok, gemini, nano banana, antigravity, jimeng, dreamina, muse or lovart. Not for ordinary local image processing.
+description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, or Lovart. Jimeng and Grok can make video. Jimeng can edit from up to 10 reference images, and Gemini from up to 3. Not for crop, resize, convert, or other ordinary local image processing."
 ---
 
 # imagegen-swarm
+
+Use this when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video, including Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, and Lovart. Do not use it for ordinary local image processing such as crop, resize, or convert.
 
 The core is work-stealing: write the images you need as a job list and hand it to `batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free takes the next image it can handle, so every engine's quota is used and the batch finishes as fast as possible. A single image goes through `batch.mjs` too: the first engine in line takes it, and if that engine is out of quota the next one does.
 

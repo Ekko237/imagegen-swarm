@@ -1,0 +1,36 @@
+{
+  "name": "imagegen-swarm",
+  "interface": {
+    "displayName": "imagegen-swarm"
+  },
+  "plugins": [
+    {
+      "name": "imagegen-swarm",
+      "description": "Generate images and videos with the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have. Lovart uses its official AK/SK.",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Ekko237/imagegen-swarm.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Media",
+      "interface": {
+        "displayName": "imagegen-swarm",
+        "shortDescription": "Images and videos from the accounts you already have.",
+        "longDescription": "A Claude Code and Codex skill. Codex, Jimeng, Grok, Gemini, and Muse use the accounts you already have. Lovart uses its official AK/SK, stored on your machine.",
+        "developerName": "Ekko237",
+        "category": "Media",
+        "capabilities": [],
+        "websiteURL": "https://github.com/Ekko237/imagegen-swarm",
+        "defaultPrompt": [
+          "Draw a lemon slice on a blue background, flat illustration.",
+          "Generate a batch of images and name the engine that made each one.",
+          "Make a short video of this picture."
+        ]
+      }
+    }
+  ]
+}

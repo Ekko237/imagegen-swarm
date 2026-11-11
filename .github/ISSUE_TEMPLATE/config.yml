@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Common questions
+    url: https://github.com/Ekko237/imagegen-swarm#common-questions
+    about: Setup and quota questions are answered in the README. For a bug, use the bug report and include the skill version, Claude Code or Codex and its version, your OS, and a transcript excerpt.
