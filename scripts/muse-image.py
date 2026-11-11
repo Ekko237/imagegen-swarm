@@ -216,10 +216,13 @@ def approvals(page):
     return page.evaluate(APPROVALS)
 
 
-def wait_done(page, since, deadline, approved):
-    # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）；待确认只批准指向本轮保存目录的请求
+def wait_done(page, since, deadline, approved, cancel_file):
+    # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）；待确认只批准指向本轮保存目录的请求。
+    # 调用方（抢活脚本）要取消时会建 cancel_file：看到就按出错流程走，删掉侧聊天再退出
     idle = None
     while True:
+        if cancel_file and Path(cancel_file).exists():
+            raise RuntimeError("cancelled: another engine finished this image first")
         asks = approvals(page)
         if asks:
             if not all(REMOTE_DIR in a["detail"] for a in asks):
@@ -293,7 +296,7 @@ def generate(args):
                 # Muse 会去掉标题两头的空格
                 rename(page, chat, (args.title or f"image-gen：{prompt[:24]}").strip())
                 open_url(page, f"{BASE}/thread/{chat}")
-                replies = wait_done(page, since, start + args.timeout / 1000, approved)
+                replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")
                 if remote not in re.findall(r"产出文件[:：]\s*(\S+)", last):
                     raise RuntimeError(f"Muse 没交出 {remote}；最后回复：{last[-1500:]}")
@@ -325,6 +328,7 @@ def main():
     parser.add_argument("--aspect", default="1:1", choices=RATIOS)
     parser.add_argument("--title", help="侧聊天标题，用户在 Muse 里看得见")
     parser.add_argument("--timeout", type=float, default=900000, help="毫秒")
+    parser.add_argument("--cancel-file", help="这个文件出现时放弃本张、删掉侧聊天后退出（抢活脚本用）")
     parser.add_argument("--login", action="store_true", help="打开有界面的浏览器，让用户自己登录 Muse")
     parser.add_argument("--list-chats", action="store_true", help="列出侧聊天（体检和测试用）")
     parser.add_argument("--json", action="store_true")

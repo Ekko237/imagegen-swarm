@@ -15,7 +15,7 @@ Each image tool has its own quota that resets weekly or monthly, and most of it 
 - **Parallel**: every engine runs a few lanes at once; a free lane grabs the next job it can handle.
 - **Quota-aware**: an engine that reports exhausted quota or a missing login is shut down, and its job goes back to the queue.
 - **Correct**: every image is checked to be new from this run, wrong aspect ratios are redone by another engine, and output is always real PNG.
-- **Fits your machine**: lane counts scale with your RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more.
+- **Fits your machine**: lane counts scale with your RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more. Want to keep memory free for other apps? Run with `IMAGE_GEN_MEMORY_GB=4`, or set exact counts with `--lanes gemini=2,codex=2`.
 - **Resumable**: rerun the same job list and finished images are skipped.
 
 ## Engines

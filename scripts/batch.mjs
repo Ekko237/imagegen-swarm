@@ -25,7 +25,8 @@ const OFF = existsSync(OFF_DIR) ? readdirSync(OFF_DIR) : [];
 // 各家单张耗时的起始估计（秒），开跑后按本批实测的中位数更新
 const TYPICAL_SECONDS = { gemini: 30, jimeng: 35, codex: 35, grok: 55, lovart: 45, muse: 110 };
 const BASE_LANES = { gemini: 6, jimeng: 4, codex: 6, grok: 4, lovart: 2, muse: 1 };
-const MEMORY_GB = totalmem() / 2 ** 30;
+// IMAGE_GEN_MEMORY_GB 可指定按多大内存来定通道数（想给别的程序留内存时设小一点）
+const MEMORY_GB = Number(process.env.IMAGE_GEN_MEMORY_GB ?? totalmem() / 2 ** 30);
 const DEFAULT_LANES = Object.fromEntries(Object.entries(BASE_LANES).map(([engine, n]) =>
   [engine, engine === 'muse' ? 1 : Math.max(1, Math.min(Math.round(n * 1.5), Math.round(n * MEMORY_GB / 8)))]));
 // 这类报错说明这家整体用不了（额度、登录、安装），不是这一张的问题
@@ -134,7 +135,9 @@ async function main() {
     // 先写临时文件，赢了才改成正式文件名
     const temp = path.join(o.out, `.attempt-${job.id}-${engine}-${serial++}${path.extname(job.file)}`);
     const script = path.join(here, e.script);
-    const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []),
+    // Muse 不能用信号停（它的浏览器库收到中断会卡住），改用取消文件
+    record.cancelFile = engine === 'muse' ? `${temp}.cancel` : null;
+    const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
       ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
     const r = await exec(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
@@ -162,11 +165,12 @@ async function main() {
       const seconds = Math.round((Date.parse(record.finished) - Date.parse(record.started)) / 1000);
       done.push({ id: job.id, file: job.file, engine, lane: n, seconds, started: record.started, finished: record.finished });
       log({ event: 'done', id: job.id, engine, seconds });
-      // 同一张图还在别家做的那份停掉（SIGINT：Muse 收到后会删掉自己的侧聊天再退出）
+      // 同一张图还在别家做的那份停掉：Muse 写取消文件，它删掉自己的侧聊天再退出；其余引擎连同子进程整组发 SIGINT
       for (const other of job.active) {
         other.outcome = 'cancelled';
         other.finished = new Date().toISOString();
-        if (other.child) process.kill(-other.child.pid, 'SIGINT');
+        if (other.cancelFile) await writeFile(other.cancelFile, 'cancel');
+        else if (other.child) process.kill(-other.child.pid, 'SIGINT');
         log({ event: 'cancel', id: job.id, engine: other.engine });
       }
       return;
