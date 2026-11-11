@@ -1,10 +1,16 @@
 # imagegen-swarm
 
-[![MIT license](https://img.shields.io/github/license/Ekko237/imagegen-swarm)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/Ekko237/imagegen-swarm)](https://github.com/Ekko237/imagegen-swarm/releases/latest)
-[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG.md-blue)](CHANGELOG.md)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="MIT license" /></a>
+  &nbsp;
+  <a href="https://github.com/Ekko237/imagegen-swarm/releases/latest"><img src="https://img.shields.io/github/v/release/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="Latest release" /></a>
+  &nbsp;
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-CHANGELOG.md-24292f?style=flat" alt="Changelog" /></a>
+</p>
 
-[English](README.md)
+<p align="center">
+  <a href="README.md">English</a>
+</p>
 
 **大多数引擎不需要图片 API 密钥。**
 
@@ -19,6 +25,10 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 哪家空着，就接下一张。
 一批图几分钟出完。
 某家额度用完，别家接过它的活。
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="imagegen-swarm 画的图，每张标着是哪家引擎画的" width="100%" />
+</p>
 
 ![50 张图 2.3 分钟出完，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测](docs/efficiency.png)
 
@@ -142,30 +152,6 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
 
-## 测试
-
-```bash
-node skills/imagegen-swarm/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
-node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
-```
-
-## 文件
-
-```
-├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references、evals
-├─ docs/                    README 配图
-├─ AGENTS.md                交给 agent 时的入口
-├─ CHANGELOG.md             版本说明
-├─ .claude-plugin/          Claude Code 插件清单（skills: ./skills/imagegen-swarm）
-├─ .codex-plugin/           Codex 插件清单（skills: ./skills/）
-├─ .agents/                 Codex 市场清单
-└─ .github/                 CI 和 bug 报告模板
-```
-
-## 出图示例
-
-![imagegen-swarm 画的图，每张标着是哪家引擎画的](docs/showcase.webp)
-
 ## 常见问题
 
 **要六家都登录吗？**
@@ -187,6 +173,32 @@ node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 **在哪些 agent 里能用？**
 
 Claude Code 和 Codex。
+
+<details>
+<summary>测试</summary>
+
+```bash
+node skills/imagegen-swarm/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
+node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+```
+
+</details>
+
+<details>
+<summary>文件</summary>
+
+```
+├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references、evals
+├─ docs/                    README 配图
+├─ AGENTS.md                交给 agent 时的入口
+├─ CHANGELOG.md             版本说明
+├─ .claude-plugin/          Claude Code 插件清单（skills: ./skills/imagegen-swarm）
+├─ .codex-plugin/           Codex 插件清单（skills: ./skills/）
+├─ .agents/                 Codex 市场清单
+└─ .github/                 CI 和 bug 报告模板
+```
+
+</details>
 
 ## 许可
 

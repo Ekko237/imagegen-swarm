@@ -1,10 +1,16 @@
 # imagegen-swarm
 
-[![MIT license](https://img.shields.io/github/license/Ekko237/imagegen-swarm)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/Ekko237/imagegen-swarm)](https://github.com/Ekko237/imagegen-swarm/releases/latest)
-[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG.md-blue)](CHANGELOG.md)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="MIT license" /></a>
+  &nbsp;
+  <a href="https://github.com/Ekko237/imagegen-swarm/releases/latest"><img src="https://img.shields.io/github/v/release/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="Latest release" /></a>
+  &nbsp;
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-CHANGELOG.md-24292f?style=flat" alt="Changelog" /></a>
+</p>
 
-[中文说明](README.zh-CN.md)
+<p align="center">
+  <a href="README.zh-CN.md">中文说明</a>
+</p>
 
 **A Claude Code and Codex skill that runs batch image and video generation across six engines in parallel.** No image API key needed for most engines—use the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have.
 
@@ -12,6 +18,10 @@
 * **Lovart**: uses its official AK/SK, stored on your machine.
 
 Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue, finishing batches in minutes. When one engine hits its quota limit, the remaining engines pick up its work.
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="Images drawn by imagegen-swarm, each labeled with the engine that made it" width="100%" />
+</p>
 
 ![50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
 
@@ -137,32 +147,6 @@ Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are 
 
 You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
 
-## Tests
-
-```bash
-node skills/imagegen-swarm/evals/run.mjs out/                         # every fixed task, including a mixed batch
-node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
-node skills/imagegen-swarm/scripts/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
-python3 skills/imagegen-swarm/scripts/reliability_rename_test.py      # Muse rename does not block generation
-```
-
-## Layout
-
-```
-├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references, evals
-├─ docs/                    README images
-├─ AGENTS.md                entry point for an agent handed this repo
-├─ CHANGELOG.md             release notes
-├─ .claude-plugin/          Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
-├─ .codex-plugin/           Codex plugin manifest (skills: ./skills/)
-├─ .agents/                 Codex marketplace manifest
-└─ .github/                 CI and bug report template
-```
-
-## Sample output
-
-![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
-
 ## Common questions
 
 **Do I need every engine logged in?**
@@ -184,6 +168,34 @@ Not for most engines. Codex and Jimeng use the accounts you already have. Grok, 
 **Which agents does this run in?**
 
 Claude Code and Codex.
+
+<details>
+<summary>Tests</summary>
+
+```bash
+node skills/imagegen-swarm/evals/run.mjs out/                         # every fixed task, including a mixed batch
+node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node skills/imagegen-swarm/scripts/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
+python3 skills/imagegen-swarm/scripts/reliability_rename_test.py      # Muse rename does not block generation
+```
+
+</details>
+
+<details>
+<summary>Layout</summary>
+
+```
+├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references, evals
+├─ docs/                    README images
+├─ AGENTS.md                entry point for an agent handed this repo
+├─ CHANGELOG.md             release notes
+├─ .claude-plugin/          Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
+├─ .codex-plugin/           Codex plugin manifest (skills: ./skills/)
+├─ .agents/                 Codex marketplace manifest
+└─ .github/                 CI and bug report template
+```
+
+</details>
 
 ## Credits
 
