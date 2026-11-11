@@ -6,7 +6,7 @@
 
 ![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
 
-![One real batch: 10 images in 3.5 minutes, 3.5 times faster than one at a time](docs/timeline.png)
+![One real batch: 50 images in 2.6 minutes on an 8 GB M1 MacBook Pro, 10 times faster than the fastest single engine, with Gemini and Lovart running out of quota mid-batch and every image still delivered](docs/timeline.png)
 
 ## Why
 

@@ -6,7 +6,7 @@
 
 ![imagegen-swarm 画的图，每张标着是哪家引擎画的](docs/showcase.webp)
 
-![一次真实抢活：10 张图 3.5 分钟，比一张接一张快 3.5 倍](docs/timeline.png)
+![一次真实抢活：8GB 内存的 M1 MacBook Pro 上 50 张图 2.6 分钟出完，比最快的单个引擎一张接一张快 10 倍；中途 Gemini、Lovart 额度用完，50 张照样全部交付](docs/timeline.png)
 
 ## 为什么做这个
 
