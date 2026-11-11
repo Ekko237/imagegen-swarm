@@ -6,6 +6,12 @@
 
 ![50 images in 2.6 minutes, 10 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
 
+## How the work is shared
+
+Every engine opens a few lanes. Each lane takes the next image in the queue, and when one engine runs out of quota the others take over. This is the real 50-image batch from the card above: Gemini and Lovart ran out partway through, and all 50 images were still delivered.
+
+![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
+
 ## Why
 
 Each image tool has its own quota that resets weekly or monthly, and most of it goes unused. One engine alone is slow and stops at its limit. imagegen-swarm puts all of them on one queue:
@@ -15,16 +21,6 @@ Each image tool has its own quota that resets weekly or monthly, and most of it 
 - **Correct**: every image is checked to be new from this run, wrong aspect ratios are redone by another engine, and output is always real PNG.
 - **Fits your machine**: lane counts scale with your RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more. Want to keep memory free for other apps? Run with `IMAGE_GEN_MEMORY_GB=4`, or set exact counts with `--lanes gemini=2,codex=2`.
 - **Resumable**: rerun the same job list and finished images are skipped.
-
-## What it makes
-
-![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
-
-## How the work is shared
-
-Every engine opens a few lanes. Each lane takes the next image in the queue, and when one engine runs out of quota the others take over. This is the real 50-image batch from the top of the page: Gemini and Lovart ran out partway through, and all 50 images were still delivered.
-
-![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
 
 ## Engines
 
@@ -87,6 +83,10 @@ node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 └─ docs/         README images
 ```
 
+## Sample output
+
+![Images drawn by imagegen-swarm, each labeled with the engine that made it](docs/showcase.webp)
+
 ## Credits
 
 The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrapper; see [NOTICE](NOTICE) for the upstream MIT attribution.
@@ -94,3 +94,4 @@ The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrap
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
