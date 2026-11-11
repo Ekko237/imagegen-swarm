@@ -10,6 +10,8 @@
 
 Every engine opens a few lanes. Each lane takes the next image in the queue, and when one engine runs out of quota the others take over. This is the real 50-image batch from the card above: Gemini and Lovart ran out partway through, and all 50 images were still delivered.
 
+It is one test run, so your numbers will differ: speed depends on how much quota you have with each engine. In this run Lovart and Muse were on free plans and Gemini and Lovart ran out midway. With more quota, every engine keeps working to the end and a batch usually finishes faster.
+
 ![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
 
 ## Why
