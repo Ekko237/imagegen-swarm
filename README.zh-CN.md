@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-![50 张图 2.6 分钟出完，比单个引擎快 10 倍，8GB 内存的 M1 MacBook Pro 上实测](docs/efficiency.png)
+![50 张图 2.3 分钟出完，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测](docs/efficiency.png)
 
 ## 活是怎么分的
 

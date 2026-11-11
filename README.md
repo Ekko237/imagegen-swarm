@@ -4,7 +4,7 @@
 
 [中文说明](README.zh-CN.md)
 
-![50 images in 2.6 minutes, 10 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
+![50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro](docs/efficiency.png)
 
 ## How the work is shared
 
