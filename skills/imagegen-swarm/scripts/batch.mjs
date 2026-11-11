@@ -3,11 +3,13 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
-// 队列空了以后抢尾单：空闲通道估得出自己能明显早于正在做的那家交图，才把那张也做一份，谁先做完用谁，其余的立刻停掉。
-// 某家额度用完、没登录或没装：关掉它的全部通道，手上的活退回队列；单张失败换别家再试；输出已存在的跳过（断点续跑）。
+// 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
+// 同时最多一份重复；谁先做完用谁，另一份停掉或丢掉。
+// 额度用完、没登录或没装：立刻关掉它的全部通道，手上的活退回队列。
+// 普通的 429 / 限流先退避，连续失败达到次数才关掉。单张失败换别家再试；输出已存在的跳过（断点续跑）。
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ENGINES = {
   gemini: { script: 'gemini-image.mjs', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: 3 },
@@ -37,8 +39,61 @@ const BASE_LANES = { gemini: 6, jimeng: 4, codex: 6, grok: 4, lovart: 2, muse: 1
 const MEMORY_GB = Number(process.env.IMAGE_GEN_MEMORY_GB ?? totalmem() / 2 ** 30);
 const DEFAULT_LANES = Object.fromEntries(Object.entries(BASE_LANES).map(([engine, n]) =>
   [engine, engine === 'muse' ? 1 : Math.max(1, Math.min(Math.round(n * 1.5), Math.round(n * MEMORY_GB / 8)))]));
-// 这类报错说明这家整体用不了（额度、登录、安装），不是这一张的问题
-const ENGINE_DOWN = /quota|credit|积分|余额|rate.?limit|usage limit|weekly limit|exhausted|insufficient|not enough|429|unauthori|not logged|log ?in|ComplianceConfirmation|not_configured|not_installed|not found:|ENOENT/i;
+// 额度用完、没登录、没装：立刻停用。普通 429 / 限流先退避，连续这么多次才停用。
+export const RATE_LIMIT_STRIKES = 3;
+export const STEAL_FACTOR = 1.5;
+const QUOTA_DOWN = /\bquota\b|\bcredits?\b|积分|余额|usage limit|weekly limit|insufficient\s+(?:credits?|quota|balance|funds)|not enough\s+(?:credits?|quota|balance)|out of\s+(?:credits?|quota)/i;
+const AUTH_DOWN = /unauthori[sz]ed|\bnot logged[ -]?in\b|\blog[ -]?in\b|authentication required|ComplianceConfirmation|not_configured/i;
+// 「not found / ENOENT」只认引擎本身没装。参考图或输出文件找不到不算整家引擎挂了。
+const NOT_INSTALLED = /not[_\s-]?installed|找不到\s*lv|\b(?:agy|codex(?:\s+CLI|\s+path)?|grok|dreamina|lv|muse|playwright)\s+not found\b|\bnot found:\s*(?:agy|codex|grok|dreamina|lv|muse)\b|\bcommand not found\b|\bspawn\w*\b[^\n]{0,200}\bENOENT\b/i;
+const RATE_LIMIT = /\b429\b|rate[\s-]?limit|too many requests|RESOURCE_EXHAUSTED/i;
+
+export function failureText(report) {
+  const detail = report?.reason ?? report?.error ?? 'unknown error';
+  if (report?.error_kind && !String(detail).includes(String(report.error_kind))) return `${detail} (${report.error_kind})`;
+  return String(detail);
+}
+
+// 'down' 立刻停用；'rate_limit' 计入连续限流；'retry' 只是这一张失败。
+export function classifyEngineError(reason) {
+  const text = String(reason ?? '');
+  if (QUOTA_DOWN.test(text) || AUTH_DOWN.test(text) || NOT_INSTALLED.test(text)) return 'down';
+  if (RATE_LIMIT.test(text)) return 'rate_limit';
+  return 'retry';
+}
+
+export function applyEngineFailure(state, reason) {
+  const strikes = state?.strikes ?? 0;
+  const kind = classifyEngineError(reason);
+  if (kind === 'down') return { action: 'down', strikes: 0, down: true };
+  if (kind === 'rate_limit') {
+    const next = strikes + 1;
+    if (next >= RATE_LIMIT_STRIKES) return { action: 'down', strikes: next, down: true };
+    return { action: 'backoff', strikes: next, down: false, backoffSeconds: 2 ** next };
+  }
+  return { action: 'retry', strikes: 0, down: false };
+}
+
+// 本批已完成耗时的中位数；还没有样本就用调用方给的起始估计。偶数个取靠后的那个，和原先下标算法一致。
+export function medianSeconds(samples, fallback) {
+  const seconds = [...samples].filter(n => n > 0).sort((a, b) => a - b);
+  if (!seconds.length) return fallback;
+  return seconds[Math.floor(seconds.length / 2)];
+}
+
+// 只有持有者已经超过自己通常耗时的 1.5 倍，才允许再开一份；已经有一份重复时不再开。
+export function shouldSteal({ activeCount, holderTypical, holderElapsed }) {
+  if (activeCount !== 1) return false;
+  if (!(holderTypical > 0) || !(holderElapsed >= 0)) return false;
+  return holderElapsed > holderTypical * STEAL_FACTOR;
+}
+
+// 已有一份做完，或这一份是被取消的：丢掉，不要当成失败，也不要再改写出的图。
+export function attemptDisposition({ cancelled, won, code, status }) {
+  if (cancelled || won) return 'ignore';
+  if (code === 0 && status === 'ok') return 'win';
+  return 'fail';
+}
 
 function parse(argv) {
   const o = { engines: Object.keys(ENGINES), lanes: { ...DEFAULT_LANES }, tries: 3 };
@@ -89,6 +144,12 @@ async function ratioOff(file, aspect) {
 
 const log = event => console.log(JSON.stringify({ at: new Date().toISOString(), ...event }));
 
+// 并行的另一家可能也写进了 tried，只能删掉自己这次，不能 pop 掉队尾
+function untry(job, engine) {
+  const at = job.tried.lastIndexOf(engine);
+  if (at >= 0) job.tried.splice(at, 1);
+}
+
 async function main() {
   const o = parse(process.argv.slice(2));
   const jobs = JSON.parse(await readFile(o.jobs, 'utf8'));
@@ -105,6 +166,8 @@ async function main() {
   await mkdir(o.out, { recursive: true });
   const start = Date.now();
   const down = new Map();
+  const rateStrikes = new Map();
+  const rateBackoffUntil = new Map();
   const done = [], failed = [];
   const queue = [];
   for (const job of jobs) {
@@ -153,18 +216,29 @@ async function main() {
     record.finished = record.finished ?? new Date().toISOString();
     running--;
     job.active.splice(job.active.indexOf(record), 1);
-    if (record.outcome === 'cancelled') {
+    const line = r.stdout.trim().split('\n').at(-1) ?? '';
+    // 被停掉的那份，或别人已经交卷的那份，不再解析、不再当成失败
+    let report = { status: 'error', reason: (r.stderr || r.stdout).slice(-500) };
+    if (record.outcome !== 'cancelled' && !job.won) {
+      if (line.startsWith('{')) {
+        try { report = JSON.parse(line); } catch { report = { status: 'error', reason: line.slice(-500) }; }
+      }
+      if (r.code === 0 && report.status === 'ok' && job.aspect && !job.video) {
+        const off = await ratioOff(temp, job.aspect);
+        if (off) {
+          report.status = 'error';
+          report.reason = `比例不对：要 ${job.aspect}，交回 ${off}`;
+        }
+      }
+    }
+    const disposition = attemptDisposition({ cancelled: record.outcome === 'cancelled', won: Boolean(job.won), code: r.code, status: report.status });
+    if (disposition === 'ignore') {
+      record.outcome = 'cancelled';
       await rm(temp, { force: true });
       return;
     }
-    const line = r.stdout.trim().split('\n').at(-1) ?? '';
-    const report = line.startsWith('{') ? JSON.parse(line) : { status: 'error', reason: (r.stderr || r.stdout).slice(-500) };
-    const off = r.code === 0 && report.status === 'ok' && job.aspect && !job.video ? await ratioOff(temp, job.aspect) : null;
-    if (off) {
-      report.status = 'error';
-      report.reason = `比例不对：要 ${job.aspect}，交回 ${off}`;
-    }
-    if (r.code === 0 && report.status === 'ok' && !job.won) {
+    if (disposition === 'win') {
+      rateStrikes.set(engine, 0);
       job.won = true;
       await rm(job.file, { force: true });
       await writeFile(job.file, await readFile(temp));
@@ -178,18 +252,27 @@ async function main() {
         other.outcome = 'cancelled';
         other.finished = new Date().toISOString();
         if (other.cancelFile) await writeFile(other.cancelFile, 'cancel');
-        else if (other.child) process.kill(-other.child.pid, 'SIGINT');
+        else if (other.child) {
+          try { process.kill(-other.child.pid, 'SIGINT'); } catch { /* 那一份已经退出，忽略即可 */ }
+        }
         log({ event: 'cancel', id: job.id, engine: other.engine });
       }
       return;
     }
     await rm(temp, { force: true });
     record.outcome = 'failed';
-    job.reason = `${engine}: ${report.reason ?? report.error ?? 'unknown error'}`.slice(0, 600);
-    if (ENGINE_DOWN.test(job.reason)) {
+    job.reason = `${engine}: ${failureText(report)}`.slice(0, 600);
+    const next = applyEngineFailure({ strikes: rateStrikes.get(engine) ?? 0 }, job.reason);
+    rateStrikes.set(engine, next.strikes);
+    if (next.action === 'down') {
       down.set(engine, job.reason);
-      job.tried.pop();
-      log({ event: 'engine_down', engine, reason: job.reason });
+      untry(job, engine);
+      log({ event: 'engine_down', engine, reason: job.reason, ...(next.strikes ? { rate_limit_strikes: next.strikes } : {}) });
+    } else if (next.action === 'backoff') {
+      // 限流不算这张已经试过：退避结束后同一家还能再接，连续三次才停用
+      untry(job, engine);
+      rateBackoffUntil.set(engine, Date.now() + next.backoffSeconds * 1000);
+      log({ event: 'rate_limit', id: job.id, engine, strikes: next.strikes, backoff_seconds: next.backoffSeconds, reason: job.reason });
     } else {
       log({ event: 'retry', id: job.id, engine, reason: job.reason });
     }
@@ -201,23 +284,30 @@ async function main() {
   }
 
   // 某家单张耗时：本批已完成的取中位数，还没有就用起始估计
-  const typical = engine => {
-    const seconds = done.filter(d => d.engine === engine && d.seconds).map(d => d.seconds).sort((a, b) => a - b);
-    return seconds.length ? seconds[Math.floor(seconds.length / 2)] : TYPICAL_SECONDS[engine];
-  };
+  const typical = engine => medianSeconds(done.filter(d => d.engine === engine).map(d => d.seconds), TYPICAL_SECONDS[engine]);
 
   async function lane(engine, n) {
     while (!down.has(engine)) {
+      const until = rateBackoffUntil.get(engine) ?? 0;
+      if (until > Date.now()) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(1000, until - Date.now())));
+        continue;
+      }
       const index = queue.findIndex(job => fits(engine, job));
       if (index >= 0) {
         await attempt(engine, n, queue.splice(index, 1)[0]);
         continue;
       }
-      // 队列空了：抢尾单。估算正在做的那家还要多久交图，比自己做一张的时间多出两成以上才抢，挑剩余时间最长的那张
+      // 队列空了才考虑抢尾单：持有者超过自己中位数的 1.5 倍才抢，已经有一份重复就不再抢。
+      // 挑超出比例最大的那张。谁先做完用谁。
       const now = Date.now();
-      const remaining = job => typical(job.active[0].engine) - (now - Date.parse(job.active[0].started)) / 1000;
-      const tail = jobs.filter(job => !job.won && job.active.length === 1 && fits(engine, job) && remaining(job) > typical(engine) * 1.2)
-        .sort((a, b) => remaining(b) - remaining(a))[0];
+      const overrun = job => ((now - Date.parse(job.active[0].started)) / 1000) / typical(job.active[0].engine);
+      const tail = jobs.filter(job => {
+        if (job.won || job.active.length !== 1 || !fits(engine, job)) return false;
+        const holder = job.active[0];
+        const elapsed = (now - Date.parse(holder.started)) / 1000;
+        return shouldSteal({ activeCount: job.active.length, holderTypical: typical(holder.engine), holderElapsed: elapsed });
+      }).sort((a, b) => overrun(b) - overrun(a))[0];
       if (tail) {
         await attempt(engine, n, tail);
         continue;
@@ -246,4 +336,5 @@ async function main() {
   if (failed.length) process.exitCode = 1;
 }
 
-main().catch(e => { console.log(JSON.stringify({ status: 'error', reason: e.message })); process.exitCode = 1; });
+const isDirect = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirect) main().catch(e => { console.log(JSON.stringify({ status: 'error', reason: e.message })); process.exitCode = 1; });

@@ -27,7 +27,15 @@ EOF
 chmod 600 ~/.lovart/env
 ```
 
-Then create a wrapper `~/tools/lovart-skill/lv` that sources that file and execs `skills/lovart-skill/scripts/agent_skill.py`, and `chmod +x` it (or point `LOVART_LV` / `--lv` at your own wrapper). `~/tools/lovart-skill/lv query-mode` returning JSON means it works.
+Then install the example wrapper (or point `LOVART_LV` / `--lv` at your own). It sources `~/.lovart/env` and execs `skills/lovart-skill/scripts/agent_skill.py`. The permission check uses `stat -c` on Linux and `stat -f` on macOS. If the mode cannot be read, the wrapper still runs the CLI, so a real API error such as no credits is not replaced by a permissions failure. A mode such as `644` is refused; `600` is accepted.
+
+```bash
+cp references/lovart-lv.example.sh ~/tools/lovart-skill/lv
+chmod +x ~/tools/lovart-skill/lv
+~/tools/lovart-skill/lv query-mode
+```
+
+`query-mode` returning JSON means the wrapper and the key work. It does not prove the account has credits.
 
 ## Check
 

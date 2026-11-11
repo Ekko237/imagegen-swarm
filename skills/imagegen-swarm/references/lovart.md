@@ -11,6 +11,10 @@ node scripts/lovart.mjs --out shot.png --aspect 2:3 --ref product.jpg --prompt "
 
 `--ref` uploads to the Lovart CDN and attaches the URL; `--mode thinking` uses the deeper mode; `--lv` points at the wrapper. Failure `error_kind` values: `invalid_args`, `not_configured` (no lv wrapper or credentials), `timeout`, `no_image` (text reply only), `error`.
 
+## Wrapper
+
+`lovart.mjs` does not ship the `lv` binary. Copy [lovart-lv.example.sh](lovart-lv.example.sh) to `~/tools/lovart-skill/lv` after cloning the official repo, or set `LOVART_LV`. The example loads `~/.lovart/env` (or `LOVART_ENV`) and checks that the file is owner-only. That check is `stat -c %a` when GNU stat is available, and `stat -f %Lp` otherwise, so Linux and macOS both work. When the mode cannot be read, the wrapper still execs the CLI and passes its stdout, stderr, and exit code through. A real "no credits" response is not hidden behind a failed permission check. See [SETUP.md](../SETUP.md).
+
 Underlying CLI: `lv query-mode` (check the key and billing mode), `lv upload --file x.jpg`, `lv chat --prompt ... --attachments <URL> --json --download --output-dir out/`, `lv set-mode --fast|--unlimited`.
 
 ## Credits
