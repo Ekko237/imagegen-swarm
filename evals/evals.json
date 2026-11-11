@@ -1,5 +1,5 @@
 {
-  "skill": "image-gen",
+  "skill": "imagegen-swarm",
   "pass_rule": "每一项的 checks 全部通过，且评委看图后 content 打分不低于 4（满分 5）",
   "content_rubric": {
     "5": "画面主体、风格、改动要求全部做到，没有明显瑕疵",

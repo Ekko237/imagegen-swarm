@@ -1,6 +1,6 @@
 # imagegen-swarm
 
-**Use every AI image quota you already pay for, all at once.** A Claude Code / Codex skill that hands a list of images to Codex, Grok, Gemini, Jimeng, Muse and Lovart in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work. No image API keys.
+**No API key needed — inside Claude Code, generate images with the accounts you already have (Codex, Jimeng/即梦, Grok, Gemini and Muse), and videos with Jimeng and Grok; Lovart uses its official AK/SK keys, stored locally.** A Claude Code / Codex skill that hands a list of images to all six engines in parallel. Whichever engine is free takes the next image, so a batch finishes in minutes, and when one engine runs out of quota the others pick up its work.
 
 [中文说明](README.zh-CN.md)
 
@@ -39,14 +39,19 @@ You only need one. Every engine you add makes batches faster.
 
 ## Install
 
+At least one engine login is required.
+On Windows see SETUP.md.
+
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/image-gen   # Claude Code
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/image-gen    # Codex
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm   # Claude Code
+git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm    # Codex
 python3 -m pip install pillow
-node ~/.claude/skills/image-gen/scripts/check.mjs                                    # shows which engines are ready
+node ~/.claude/skills/imagegen-swarm/scripts/check.mjs                                    # shows which engines are ready
 ```
 
 Requirements: Node.js 18+ and Python 3 with Pillow, on macOS, Windows or Linux. Log in to the engines you want with [SETUP.md](SETUP.md).
+
+Already installed under `image-gen`? Move `~/.claude/skills/image-gen` or `~/.codex/skills/image-gen` to `imagegen-swarm`. The old folder name collides with other skills.
 
 ## Usage
 

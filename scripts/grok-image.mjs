@@ -97,7 +97,7 @@ async function main() {
       oldHashes.add((await fingerprints([reference]))[0]);
     }
     const tool = o.video ? 'reference_to_video' : o.ref ? 'image_edit' : 'image_gen';
-    const instruction = `用你自己的 ${tool} 工具，不要调用 image-gen 技能或其他引擎。只生成一次。不得使用 /tmp。\n` +
+    const instruction = `用你自己的 ${tool} 工具，不要调用 imagegen-swarm 技能或其他引擎。只生成一次。不得使用 /tmp。\n` +
       `任务提示词（原样传给工具）：${JSON.stringify(prompt)}\n` +
       (reference ? `源图绝对路径：${JSON.stringify(reference)}。${o.video ? '把它传为 first_frame，duration=6，resolution_name=720p。' : '作为 image 参数传入，保持源图比例。'}\n` : '') +
       ((!o.ref || o.video) ? `aspect_ratio=${JSON.stringify(o.ratio)}。\n` : '') +

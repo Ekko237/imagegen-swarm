@@ -10,8 +10,15 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const SCRIPTS = { gemini: 'gemini-image.mjs', jimeng: 'jimeng-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
-const OFF_DIR = process.env.IMAGE_GEN_ENGINE_OFF ?? path.join(homedir(), '.config', 'image-gen', 'engine-off');
-const OFF = existsSync(OFF_DIR) ? readdirSync(OFF_DIR) : [];
+function engineOffNames() {
+  const dirs = process.env.IMAGE_GEN_ENGINE_OFF
+    ? [process.env.IMAGE_GEN_ENGINE_OFF]
+    : [path.join(homedir(), '.config', 'imagegen-swarm', 'engine-off'), path.join(homedir(), '.config', 'image-gen', 'engine-off')];
+  const names = new Set();
+  for (const dir of dirs) if (existsSync(dir)) for (const name of readdirSync(dir)) names.add(name);
+  return [...names];
+}
+const OFF = engineOffNames();
 const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
 
 function exec(bin, args) {
@@ -91,7 +98,7 @@ async function main() {
     }
     if (c.muse_chat_removed) {
       const listed = JSON.parse((await exec(PY, [MUSE_PY, '--list-chats'])).stdout).chats;
-      const left = listed.filter(chat => chat.title?.startsWith('image-gen：'));
+      const left = listed.filter(chat => chat.title?.startsWith('imagegen-swarm：') || chat.title?.startsWith('image-gen：'));
       if (left.length) failed.push(`Muse 里还留着侧聊天：${left.map(chat => chat.title).join('、')}`);
     }
     results.push({ id: task.id, engine: task.engine, pass: !failed.length, failed, seconds: Math.round((Date.now() - started) / 1000),
