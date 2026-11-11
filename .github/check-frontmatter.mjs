@@ -85,6 +85,7 @@ for (const rel of [
   "scripts/check.mjs",
   "references/codex.md",
   "references/lovart.md",
+  "references/lovart-lv.example.sh",
   "evals/run.mjs",
   "evals/evals.json",
   "SETUP.md",

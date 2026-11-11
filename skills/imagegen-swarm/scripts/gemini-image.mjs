@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, copyFile, rm, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, copyFile, readdir, rm, stat } from 'node:fs/promises';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
 const BRAIN = path.join(homedir(), '.gemini', 'antigravity-cli', 'brain');
@@ -61,13 +61,153 @@ function run(bin, args, cwd, timeout = 60000) {
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const IMGTOOL = path.join(path.dirname(fileURLToPath(import.meta.url)), 'imgtool.py');
 
-async function transcript(conversation) {
-  const file = path.join(BRAIN, conversation, '.system_generated', 'logs', 'transcript.jsonl');
-  return (await readFile(file, 'utf8')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+// 会话日志会把很长的提示词截断。截断行不能让 JSON.parse 抛错，否则图已经生成也会被丢掉。
+// 完整原文在同目录的 transcript_full.jsonl；没有完整文件时再读被截过的 transcript.jsonl。
+export function transcriptFile(dir) {
+  const full = path.join(dir, 'transcript_full.jsonl');
+  const clipped = path.join(dir, 'transcript.jsonl');
+  try {
+    if (existsSync(full) && statSync(full).size > 0) return full;
+  } catch { /* 完整日志不可读就退回截断的那份 */ }
+  return clipped;
 }
 
-// generate_image 的参数在会话记录里是 JSON 编码过的字符串，逐个解开
-const toolArgs = args => Object.fromEntries(Object.entries(args).map(([k, v]) => [k, JSON.parse(v)]));
+export function parseJsonValue(text) {
+  try { return JSON.parse(text); } catch { /* 截断或夹杂了说明文字 */ }
+  const repaired = repairTruncatedJson(text);
+  if (!repaired) return null;
+  try { return JSON.parse(repaired); } catch { return null; }
+}
+
+// 补上被截断的引号和括号。只在 JSON.parse 失败时用，完整 JSON 走上面的直接解析。
+function repairTruncatedJson(text) {
+  let out = '';
+  let inString = false;
+  let escape = false;
+  const stack = [];
+  for (const ch of String(text)) {
+    out += ch;
+    if (inString) {
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if ((ch === '}' || ch === ']') && stack.at(-1) === ch) stack.pop();
+  }
+  if (escape) out = out.slice(0, -1);
+  if (inString) out += '"';
+  out = out.replace(/,\s*$/, '');
+  out = out.replace(/,?\s*"[^"\\]*"\s*:\s*$/, '');
+  while (stack.length) out += stack.pop();
+  return out.trim() ? out : null;
+}
+
+// 工具参数是 JSON 编码的字符串。提示词被截断时解开失败，保留已经写下的那段，不要抛错。
+export function parseEncodedArg(value) {
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { /* 截断的 JSON 字符串，或本来就不是 JSON */ }
+  return recoverJsonString(value);
+}
+
+function recoverJsonString(value) {
+  let body = value.trim();
+  if (body.startsWith('"')) body = body.slice(1);
+  body = body.replace(/\\u[0-9a-fA-F]{0,3}$/, '');
+  if (body.endsWith('\\') && !body.endsWith('\\\\')) body = body.slice(0, -1);
+  try { return JSON.parse(`"${body}"`); } catch { /* 里面还有没转义的引号 */ }
+  return body.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+}
+
+export function parseToolArgs(args) {
+  return Object.fromEntries(Object.entries(args ?? {}).map(([k, v]) => [k, parseEncodedArg(v)]));
+}
+
+export function parseTranscript(text) {
+  const steps = [];
+  for (const line of String(text).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const step = parseJsonValue(trimmed);
+    if (step && typeof step === 'object') steps.push(step);
+    else {
+      const salvaged = salvageTruncatedStep(trimmed);
+      if (salvaged) steps.push(salvaged);
+    }
+  }
+  return steps;
+}
+
+// 整行被截断、修不好时，仍尽量留下出图工具和已保存的图片路径。
+function salvageTruncatedStep(line) {
+  const saved = line.match(/Generated image is saved at\s+(\S+)/);
+  const uri = line.match(/"uri"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (!saved && !uri && !line.includes('generate_image')) return null;
+  const step = { content: line, tool_calls: [], media: [] };
+  if (line.includes('generate_image')) {
+    const prompt = line.match(/"Prompt"\s*:\s*"((?:\\.|[^"\\])*)/);
+    const aspect = line.match(/"AspectRatio"\s*:\s*"((?:\\.|[^"\\])*)/);
+    const args = {};
+    if (prompt) args.Prompt = `"${prompt[1]}"`;
+    if (aspect) args.AspectRatio = `"${aspect[1]}"`;
+    step.tool_calls.push({ name: 'generate_image', args });
+  }
+  const rawUri = uri ? uri[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : null;
+  const file = rawUri || (saved ? saved[1].replace(/["},]+$/, '') : null);
+  if (file) {
+    step.media.push({ mime_type: 'image/png', uri: file.startsWith('file:') ? file : `file://${file}` });
+    if (!/Generated image is saved at/.test(step.content)) step.content += `\nGenerated image is saved at ${file}`;
+  }
+  return step;
+}
+
+export function mediaPath(uri) {
+  if (typeof uri !== 'string' || !uri) return null;
+  try {
+    const url = new URL(uri);
+    if (url.protocol === 'file:') return decodeURIComponent(url.pathname);
+  } catch { /* 不是 URL，下面按绝对路径试 */ }
+  return uri.startsWith('/') ? uri : null;
+}
+
+// 一次会话里：先记下 generate_image 的参数，后面步骤里「图已保存」的媒体就是产出。
+// 参数被截断时 call 可能缺提示词，图片路径仍然算数。
+export function extractGenerated(steps) {
+  const generated = [];
+  let call = null;
+  for (const step of steps) {
+    const used = (step?.tool_calls ?? []).find(t => t?.name === 'generate_image');
+    if (used) call = { ...(call ?? {}), ...parseToolArgs(used.args) };
+    const content = String(step?.content ?? '');
+    for (const media of step?.media ?? []) {
+      if (!media?.mime_type?.startsWith('image/') || !/Generated image is saved at/.test(content)) continue;
+      const file = mediaPath(media.uri);
+      if (file) generated.push({ file, call: { ...(call ?? {}) } });
+    }
+  }
+  return generated;
+}
+
+// agy 的 stdout 是 JSON。提示词很长时这一段也会被截断；能找回会话编号就继续去日志里拿图。
+export function parseAgyReply(text) {
+  const direct = parseJsonValue(text) ?? {};
+  const status = typeof direct.status === 'string' ? direct.status : text.match(/"status"\s*:\s*"([^"]+)"/)?.[1] ?? null;
+  const conversation_id = typeof direct.conversation_id === 'string'
+    ? direct.conversation_id
+    : text.match(/"conversation_id"\s*:\s*"([0-9a-f-]{36})"/)?.[1] ?? null;
+  const response = typeof direct.response === 'string' ? direct.response : null;
+  return { status, conversation_id, response };
+}
+
+async function loadTranscript(conversation) {
+  const dir = path.join(BRAIN, conversation, '.system_generated', 'logs');
+  const file = transcriptFile(dir);
+  if (!existsSync(file)) return [];
+  return parseTranscript(await readFile(file, 'utf8'));
+}
 
 async function main() {
   const start = Date.now(), o = parse(process.argv.slice(2));
@@ -96,27 +236,23 @@ async function main() {
       'Do not use any other tool yourself. When it finishes, reply with only the absolute path of the image.';
     const reply = await run(o.agy, ['-p', instruction, '--model', o.model, '--sandbox', '--disable-slash-commands', '--output-format', 'json',
       '--print-timeout', `${Math.ceil(o.timeout / 1000)}s`, '--log-file', path.join(work, 'agy.log')], work, o.timeout + 30000);
-    const result = JSON.parse(reply);
-    if (result.status !== 'SUCCESS') throw new Error(`agy status ${result.status}: ${reply.slice(-3000)}`);
+    const result = parseAgyReply(reply);
+    if (result.status && result.status !== 'SUCCESS') throw new Error(`agy status ${result.status}: ${reply.slice(-3000)}`);
+    if (!result.conversation_id) throw new Error(`agy status ${result.status ?? 'unknown'}: ${reply.slice(-3000)}`);
     const parent = result.conversation_id, brain = path.join(BRAIN, parent);
     // 主会话记录里登记了它开的子代理；在主会话和子代理的记录里找 generate_image 调用和它保存的图
-    const steps = await transcript(parent);
+    const steps = await loadTranscript(parent);
     const children = [...new Set(steps.flatMap(s => [...String(s.content ?? '').matchAll(/"conversationId":\s*"([0-9a-f-]{36})"/g)].map(m => m[1])))];
-    const generated = [];
-    for (const conversation of [parent, ...children]) {
-      let call = null;
-      for (const step of await transcript(conversation)) {
-        const used = (step.tool_calls ?? []).find(t => t.name === 'generate_image');
-        if (used) call = toolArgs(used.args);
-        for (const media of step.media ?? []) {
-          if (call && media.mime_type?.startsWith('image/') && /Generated image is saved at/.test(step.content ?? '')) {
-            generated.push({ file: decodeURIComponent(new URL(media.uri).pathname), call });
-          }
-        }
-      }
+    const generated = extractGenerated(steps);
+    for (const conversation of children) {
+      if (conversation !== parent) generated.push(...extractGenerated(await loadTranscript(conversation)));
+    }
+    // 日志被截断、解析不到媒体时，会话目录里这次新写出的图仍然算数
+    if (!generated.length) {
+      for (const file of await freshImages(brain, start)) generated.push({ file, call: {} });
     }
     // 子代理出图失败（额度用完会报 429 RESOURCE_EXHAUSTED）时原因在主代理最后的回复里，放在报错最前面
-    if (!generated.length) throw new Error(`generate_image produced no image: ${result.response?.slice(-1500)} (agy conversation ${parent})`);
+    if (!generated.length) throw new Error(`generate_image produced no image: ${(result.response ?? reply).slice(-1500)} (agy conversation ${parent})`);
     const picked = generated.find(g => result.response?.includes(g.file)) ?? generated.at(-1);
     const source = picked.file;
     if (path.dirname(source) !== brain) throw new Error(`generated image outside this conversation's artifacts: ${source}`);
@@ -125,9 +261,10 @@ async function main() {
     const { width, height } = await img('png', source, o.out);
     const data = await readFile(o.out);
     if (!data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) throw new Error('invalid output PNG signature');
+    const toolPrompt = typeof picked.call.Prompt === 'string' ? picked.call.Prompt : null;
     console.log(JSON.stringify({
-      status: 'ok', path: o.out, engine: 'gemini', source_path: source, width, height, aspect: picked.call.AspectRatio,
-      tool_prompt: picked.call.Prompt, prompt_verbatim: picked.call.Prompt.trim() === prompt, attempts: generated.length,
+      status: 'ok', path: o.out, engine: 'gemini', source_path: source, width, height, aspect: picked.call.AspectRatio ?? o.aspect,
+      tool_prompt: toolPrompt, prompt_verbatim: toolPrompt == null ? null : toolPrompt.trim() === prompt, attempts: generated.length,
       conversation_id: parent, bytes: data.length, elapsed_seconds: Math.round((Date.now() - start) / 1000),
     }));
   } finally {
@@ -135,7 +272,25 @@ async function main() {
   }
 }
 
-main().catch(e => {
-  console.log(JSON.stringify({ status: 'error', engine: 'gemini', reason: e.message }));
-  process.exitCode = 1;
-});
+async function freshImages(dir, since) {
+  let names = [];
+  try { names = await readdir(dir); } catch { return []; }
+  const found = [];
+  for (const name of names) {
+    if (!/\.(png|jpe?g|webp)$/i.test(name)) continue;
+    const file = path.join(dir, name);
+    try {
+      const info = await stat(file);
+      if (info.isFile() && info.size > 0 && info.mtimeMs >= since) found.push(file);
+    } catch { /* 文件在列出之后消失 */ }
+  }
+  return found;
+}
+
+const isDirect = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirect) {
+  main().catch(e => {
+    console.log(JSON.stringify({ status: 'error', engine: 'gemini', reason: e.message }));
+    process.exitCode = 1;
+  });
+}

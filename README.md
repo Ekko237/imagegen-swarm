@@ -35,7 +35,7 @@ It is one test run, so your numbers will differ: speed depends on how much quota
 Each image tool has its own quota that resets weekly or monthly, and most of it goes unused. One engine alone is slow and stops at its limit. imagegen-swarm puts all of them on one queue:
 
 - **Parallel**: every engine runs a few lanes at once; a free lane grabs the next job it can handle.
-- **Quota-aware**: an engine that reports exhausted quota or a missing login is shut down, and its job goes back to the queue.
+- **Quota-aware**: an engine that reports exhausted quota, a missing login, or a missing install is shut down, and its job goes back to the queue. A plain rate limit backs off and shuts the engine down only after three in a row.
 - **Correct**: every image is checked to be new from this run, wrong aspect ratios are redone by another engine, and output is always real PNG.
 - **Fits your machine**: lane counts scale with your RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more. Want to keep memory free for other apps? Run with `IMAGE_GEN_MEMORY_GB=4`, or set exact counts with `--lanes gemini=2,codex=2`.
 - **Resumable**: rerun the same job list and finished images are skipped.
@@ -131,6 +131,8 @@ Each job needs `id` and `prompt`; `aspect`, `ref`, `video` and `engine` are opti
 ```bash
 node skills/imagegen-swarm/evals/run.mjs out/                         # every fixed task, including a mixed batch
 node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node skills/imagegen-swarm/scripts/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
+python3 skills/imagegen-swarm/scripts/reliability_rename_test.py      # Muse rename does not block generation
 ```
 
 ## Layout
@@ -162,7 +164,7 @@ The skill contains no accounts or keys. Each engine keeps its login in its own f
 
 **What happens when a quota runs out?**
 
-An engine that reports exhausted quota, no login, or no install is shut down. The image it held goes back to the queue. A failed image is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). When every engine is out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
+An engine that reports exhausted quota, no login, or no install is shut down. The image it held goes back to the queue. A plain rate limit (429) backs off and shuts that engine down only after three consecutive rate-limit failures. A failed image is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). When every engine is out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
 
 **Do I need an API key?**
 

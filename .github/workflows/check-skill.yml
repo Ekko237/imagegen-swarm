@@ -22,3 +22,7 @@ jobs:
             node --check "$f"
           done
           python3 -m py_compile skills/imagegen-swarm/scripts/*.py
+      - name: Reliability tests
+        run: |
+          node skills/imagegen-swarm/scripts/reliability.test.mjs
+          python3 skills/imagegen-swarm/scripts/reliability_rename_test.py

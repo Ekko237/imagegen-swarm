@@ -129,25 +129,40 @@ def side_chats(page):
     return result
 
 
-def row_menu(page, chat, item):
+def row_menu(page, chat, item, timeout=30000):
     open_url(page, f"{BASE}/thread/{chat}")
     chats_panel(page)
     row = page.locator('[data-testid=hatch-thread-row][aria-current=page]')
     if row.count() != 1 or "Main chat" in row.inner_text():
         raise RuntimeError(f"当前行不是侧聊天 {chat}，不动它")
     row.dispatch_event("contextmenu", {"bubbles": True, "button": 2, "clientX": 150, "clientY": 150})
-    page.get_by_role("menuitem", name=item).click()
+    page.get_by_role("menuitem", name=item).click(timeout=timeout)
 
 
-def rename(page, chat, title):
-    row_menu(page, chat, "Rename")
+def rename(page, chat, title, timeout=8000):
+    row_menu(page, chat, "Rename", timeout=timeout)
     # 改名框会被消息框抢焦点：直接设值并发输入、回车事件（React 受控输入框的做法）
-    page.get_by_test_id("hatch-thread-rename-input").evaluate("""(e, title) => {
+    box = page.get_by_test_id("hatch-thread-rename-input")
+    box.wait_for(state="visible", timeout=timeout)
+    box.evaluate("""(e, title) => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, title);
         e.dispatchEvent(new Event('input', {bubbles: true}));
         e.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true}));
     }""", title)
     page.wait_for_timeout(1500)
+
+
+def rename_or_continue(page, chat, title):
+    # 改名只是给用户看的标题。对话框打不开或超时都不能挡住出图。
+    try:
+        rename(page, chat, title)
+        return True
+    except Exception:
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
 
 
 def delete(page, chat):
@@ -306,8 +321,9 @@ def generate(args):
             chat = None
             try:
                 chat, since = send(page, text, refs)
-                # Muse 会去掉标题两头的空格
-                rename(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip())
+                # Muse 会去掉标题两头的空格。改名失败就关掉对话框，继续等图。
+                if not rename_or_continue(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip()):
+                    print("muse rename skipped; continuing", file=sys.stderr)
                 open_url(page, f"{BASE}/thread/{chat}")
                 replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")
