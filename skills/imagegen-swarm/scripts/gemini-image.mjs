@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, copyFile, readdir, rm, stat } from 'node:fs/p
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { isInvokedDirectly } from './direct.mjs';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
 const BRAIN = path.join(homedir(), '.gemini', 'antigravity-cli', 'brain');
@@ -287,8 +288,7 @@ async function freshImages(dir, since) {
   return found;
 }
 
-const isDirect = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isDirect) {
+if (isInvokedDirectly(import.meta.url)) {
   main().catch(e => {
     console.log(JSON.stringify({ status: 'error', engine: 'gemini', reason: e.message }));
     process.exitCode = 1;

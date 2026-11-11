@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isInvokedDirectly } from './direct.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
   failureText, medianSeconds, shouldSteal,
@@ -228,9 +229,9 @@ check('steal threshold uses the median, not the slowest sample', () => {
   assert.equal(shouldSteal({ activeCount: 1, holderTypical: median, holderElapsed: 201 }), true);
 });
 
-function run(cmd, args, env) {
+function run(cmd, args, env, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
@@ -310,6 +311,55 @@ exit 1
     assert.equal(ok.code, 3, `stdout=${ok.stdout} stderr=${ok.stderr}`);
     assert.match(ok.stdout, /no credits/);
     assert.doesNotMatch(ok.stderr, /Refusing to run/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('symlink launch runs main; a missing entry path does not', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'entry-link-'));
+  try {
+    const batchPath = path.join(here, 'batch.mjs');
+    const geminiPath = path.join(here, 'gemini-image.mjs');
+    const batchUrl = pathToFileURL(batchPath).href;
+    const fileLink = path.join(dir, 'batch-link.mjs');
+    const geminiLink = path.join(dir, 'gemini-link.mjs');
+    const parentLink = path.join(dir, 'scripts');
+    const chained = path.join(dir, 'batch-chain.mjs');
+    await symlink(batchPath, fileLink);
+    await symlink(geminiPath, geminiLink);
+    await symlink(here, parentLink);
+    await symlink(fileLink, chained);
+
+    assert.equal(isInvokedDirectly(batchUrl, undefined), false);
+    assert.equal(isInvokedDirectly(batchUrl, ''), false);
+    assert.equal(isInvokedDirectly(batchUrl, path.join(dir, 'missing.mjs')), false);
+    assert.equal(isInvokedDirectly(batchUrl, fileLink), true);
+    assert.equal(isInvokedDirectly(batchUrl, path.join(parentLink, 'batch.mjs')), true);
+    assert.equal(isInvokedDirectly(batchUrl, chained), true);
+    assert.equal(isInvokedDirectly(batchUrl, geminiPath), false);
+
+    for (const entry of [batchPath, fileLink, path.join(parentLink, 'batch.mjs'), chained]) {
+      const r = await run(process.execPath, [entry, '--help']);
+      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.match(r.stdout, /--jobs/, entry);
+    }
+    for (const entry of ['batch-link.mjs', 'scripts/batch.mjs', 'batch-chain.mjs']) {
+      const r = await run(process.execPath, [entry, '--help'], undefined, dir);
+      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.match(r.stdout, /--jobs/, entry);
+    }
+    for (const entry of [geminiPath, geminiLink, path.join(parentLink, 'gemini-image.mjs')]) {
+      const r = await run(process.execPath, [entry, '--help']);
+      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.match(r.stdout, /gemini-image\.mjs/, entry);
+    }
+
+    const imported = await run(process.execPath, ['--input-type=module', '-e',
+      `await import(${JSON.stringify(pathToFileURL(batchPath).href)}); console.log('imported-only');`]);
+    assert.equal(imported.code, 0, imported.stderr);
+    assert.match(imported.stdout, /imported-only/);
+    assert.doesNotMatch(imported.stdout + imported.stderr, /require --jobs|batch\.mjs --jobs/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
