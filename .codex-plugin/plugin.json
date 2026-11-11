@@ -10,7 +10,7 @@
   "repository": "https://github.com/Ekko237/imagegen-swarm",
   "license": "MIT",
   "keywords": ["skills", "images", "video", "claude-code", "codex"],
-  "skills": ".",
+  "skills": "./skills/",
   "interface": {
     "displayName": "imagegen-swarm",
     "shortDescription": "Images and videos from the accounts you already have.",

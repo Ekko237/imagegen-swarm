@@ -18,7 +18,7 @@ jobs:
       - name: Syntax-check scripts
         run: |
           set -euo pipefail
-          for f in scripts/*.mjs; do
+          for f in skills/imagegen-swarm/scripts/*.mjs; do
             node --check "$f"
           done
-          python3 -m py_compile scripts/*.py
+          python3 -m py_compile skills/imagegen-swarm/scripts/*.py
