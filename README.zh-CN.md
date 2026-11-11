@@ -55,11 +55,25 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 
 ## 安装
 
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
+
+这条命令用 npx skills CLI 安装技能，适用于 Claude Code、Codex 和其他 agent。
+
+<details>
+<summary>Claude Code plugin</summary>
+
 Claude Code：
 
 ```bash
 claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
 ```
+
+</details>
+
+<details>
+<summary>Codex plugin</summary>
 
 Codex：
 
@@ -67,6 +81,8 @@ Codex：
 codex plugin marketplace add Ekko237/imagegen-swarm
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
+
+</details>
 
 这两段命令安装的是技能本身。你仍需要 Node.js 18+，以及装了 Pillow 的 Python 3（`python3 -m pip install pillow`）。macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。
 

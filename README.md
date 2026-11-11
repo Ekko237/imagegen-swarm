@@ -48,11 +48,25 @@ You only need one engine logged in. Every engine you add makes batches faster.
 
 ## Install
 
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
+
+That installs the skill with the npx skills CLI and works across Claude Code, Codex and other agents.
+
+<details>
+<summary>Claude Code plugin</summary>
+
 Claude Code:
 
 ```bash
 claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
 ```
+
+</details>
+
+<details>
+<summary>Codex plugin</summary>
 
 Codex:
 
@@ -60,6 +74,8 @@ Codex:
 codex plugin marketplace add Ekko237/imagegen-swarm
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
+
+</details>
 
 These commands install the skill. You still need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK.
 
