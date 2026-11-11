@@ -10,6 +10,7 @@
   "repository": "https://github.com/Ekko237/imagegen-swarm",
   "license": "MIT",
   "keywords": ["skills", "images", "video", "claude-code", "codex"],
+  "skills": "./skills/imagegen-swarm",
   "metadata": {
     "defaultPrompts": [
       "Draw a lemon slice on a blue background, flat illustration.",

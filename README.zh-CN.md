@@ -55,44 +55,56 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 
 ## 安装
 
+Claude Code：
+
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm
+claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
 ```
 
-需要 Node.js 18+ 和装了 Pillow 的 Python 3（`python3 -m pip install pillow`），macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。文件夹必须命名为 `imagegen-swarm`。
+Codex：
 
-验证是否可用：让你的 agent 画一片蓝底上的柠檬切片。你应该得到一张新的 PNG，这次运行会记下是哪家出的。
+```bash
+codex plugin marketplace add Ekko237/imagegen-swarm
+codex plugin add imagegen-swarm@imagegen-swarm
+```
 
-更新：在技能文件夹里执行 `git pull`。
+这两段命令安装的是技能本身。你仍需要 Node.js 18+，以及装了 Pillow 的 Python 3（`python3 -m pip install pillow`）。macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。
+
+验证：让你的 agent 画一片蓝底上的柠檬切片。你应该得到一张新的 PNG，这次运行会记下是哪家出的。
 
 <details>
-<summary>Codex、普通文件夹、Windows 和插件</summary>
+<summary>文件夹安装、npx 和 Windows</summary>
 
-### Codex
+### 文件夹
+
+把 `skills/imagegen-swarm` 复制或软链接到 agent 的技能目录。文件夹必须命名为 `imagegen-swarm`。
 
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm
+git clone https://github.com/Ekko237/imagegen-swarm.git
+mkdir -p ~/.claude/skills ~/.codex/skills
+ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.claude/skills/imagegen-swarm
+ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
 ```
 
-在该文件夹里 `git pull` 即可更新。依赖与上面相同。
+不想用软链接，就把 `ln -s` 换成 `cp -a`。软链接安装后，在克隆出来的仓库里 `git pull` 即更新。复制安装要再复制一次。以前装在 `image-gen` 下的，改名为 `imagegen-swarm`。
 
-### 普通文件夹
+### npx skills
 
-克隆或复制本仓库，文件夹命名为 `imagegen-swarm`。以前装在 `image-gen` 下的，改名为 `imagegen-swarm`。旧文件夹名会和其他技能撞名。
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
 
 ### Windows
 
-用同样的克隆命令。Windows 上脚本调用 `python`，也可以设置 `PYTHON`。Pillow 用 `python -m pip install pillow` 安装。即梦的安装需要 Git Bash。各家登录见 [SETUP.md](SETUP.md)（英文）。
+把 `skills/imagegen-swarm` 复制到 `%USERPROFILE%\.claude\skills\imagegen-swarm` 或 `%USERPROFILE%\.codex\skills\imagegen-swarm`。Windows 上脚本调用 `python`，也可以设置 `PYTHON`。Pillow 用 `python -m pip install pillow` 安装。即梦的安装需要 Git Bash。各家登录见 [SETUP.md](skills/imagegen-swarm/SETUP.md)（英文）。
 
-### 插件
-
-Claude Code 的插件清单在 `.claude-plugin/`。Codex 的插件清单在 `.codex-plugin/` 和 `.agents/plugins/marketplace.json`。本说明文档写的安装方式是上面的文件夹克隆。
-
-查看哪几家已经能用：
+在技能文件夹里查看哪几家已经能用：
 
 ```bash
 node scripts/check.mjs
 ```
+
+如果是本仓库的克隆，同一条检查是 `node skills/imagegen-swarm/scripts/check.mjs`。
 
 </details>
 
@@ -109,33 +121,29 @@ cat > jobs.json <<'EOF'
   {"id": "night",  "prompt": "the same lemon slice, but at night", "ref": ["out/lemon.png"]}
 ]
 EOF
-node scripts/batch.mjs --jobs jobs.json --out out/
+node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的。单个引擎的脚本也能单独用，比如 `node scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](SKILL.md)。
+每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
 
 ## 测试
 
 ```bash
-node evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
-node evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node skills/imagegen-swarm/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
+node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ```
 
 ## 文件
 
 ```
-├─ SKILL.md          技能定义和引擎说明
-├─ SETUP.md          安装和各家登录
-├─ AGENTS.md         交给 agent 时的入口
-├─ CHANGELOG.md      版本说明
-├─ scripts/          batch.mjs（抢活）、每家一个脚本、jimeng.mjs、imgtool.py、check.mjs
-├─ references/       codex.md、lovart.md
-├─ evals/            固定测试和评分标准、run.mjs
-├─ docs/             README 配图
-├─ .claude-plugin/   Claude Code 插件清单
-├─ .codex-plugin/    Codex 插件清单
-├─ .agents/          Codex 市场清单
-└─ .github/          CI 和 bug 报告模板
+├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references、evals
+├─ docs/                    README 配图
+├─ AGENTS.md                交给 agent 时的入口
+├─ CHANGELOG.md             版本说明
+├─ .claude-plugin/          Claude Code 插件清单（skills: ./skills/imagegen-swarm）
+├─ .codex-plugin/           Codex 插件清单（skills: ./skills/）
+├─ .agents/                 Codex 市场清单
+└─ .github/                 CI 和 bug 报告模板
 ```
 
 ## 出图示例
@@ -146,11 +154,11 @@ node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 
 **要六家都登录吗？**
 
-不用。有一家就能用。接上的越多，一批图出得越快。只装你要用的。`node scripts/check.mjs` 会列出哪几家已经能用。没登录的会被关掉，手上的图退回队列。
+不用。有一家就能用。接上的越多，一批图出得越快。只装你要用的。`node skills/imagegen-swarm/scripts/check.mjs` 会列出哪几家已经能用。没登录的会被关掉，手上的图退回队列。
 
 **登录安全吗？**
 
-技能本身不含账号和密钥。每家的登录留在它自己的目录里。分享这个技能时，不要把那些目录一起打包。Lovart 的 AK/SK 写在 `~/.lovart/env`，权限是 `600`，不要写进对话，也不要写进 git。各家目录见 [SETUP.md](SETUP.md)。
+技能本身不含账号和密钥。每家的登录留在它自己的目录里。分享这个技能时，不要把那些目录一起打包。Lovart 的 AK/SK 写在 `~/.lovart/env`，权限是 `600`，不要写进对话，也不要写进 git。各家目录见 [SETUP.md](skills/imagegen-swarm/SETUP.md)。
 
 **额度用完会怎样？**
 

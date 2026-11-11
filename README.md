@@ -55,44 +55,56 @@ You only need one. Every engine you add makes batches faster.
 
 ## Install
 
+Claude Code:
+
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.claude/skills/imagegen-swarm
+claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
 ```
 
-Requirements: Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`), on macOS, Windows or Linux. Log in to at least one engine before you generate. Lovart needs its official AK/SK. The folder must be named `imagegen-swarm`.
+Codex:
 
-Verify it works: ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run records which engine made it.
+```bash
+codex plugin marketplace add Ekko237/imagegen-swarm
+codex plugin add imagegen-swarm@imagegen-swarm
+```
 
-Update: run `git pull` inside the skill folder.
+These commands install the skill. You still need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows or Linux. Log in to at least one engine before you generate. Lovart needs its official AK/SK.
+
+Verify: ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run records which engine made it.
 
 <details>
-<summary>Codex, a plain folder, Windows, and plugins</summary>
+<summary>Folder install, npx, and Windows</summary>
 
-### Codex
+### Folder
+
+Copy or symlink `skills/imagegen-swarm` into the agent skills directory. The folder must be named `imagegen-swarm`.
 
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git ~/.codex/skills/imagegen-swarm
+git clone https://github.com/Ekko237/imagegen-swarm.git
+mkdir -p ~/.claude/skills ~/.codex/skills
+ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.claude/skills/imagegen-swarm
+ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
 ```
 
-Update with `git pull` inside that folder. Requirements are the same.
+To copy instead of symlink, use `cp -a` in place of `ln -s`. Update a symlink install with `git pull` inside the clone. Update a copy by copying the folder again. An older install named `image-gen` should be renamed to `imagegen-swarm`.
 
-### Plain folder
+### npx skills
 
-Clone or copy this repo and name the folder `imagegen-swarm`. An older install named `image-gen` should be renamed to `imagegen-swarm`. The old name collides with other skills.
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
 
 ### Windows
 
-Use the same clone. On Windows the scripts call `python`, or set `PYTHON`. Install Pillow with `python -m pip install pillow`. The Jimeng installer needs Git Bash. Engine login steps are in [SETUP.md](SETUP.md).
+Copy `skills/imagegen-swarm` to `%USERPROFILE%\.claude\skills\imagegen-swarm` or `%USERPROFILE%\.codex\skills\imagegen-swarm`. On Windows the scripts call `python`, or set `PYTHON`. Install Pillow with `python -m pip install pillow`. The Jimeng installer needs Git Bash. Engine login steps are in [SETUP.md](skills/imagegen-swarm/SETUP.md).
 
-### Plugins
-
-Plugin manifests for Claude Code are in `.claude-plugin/`. Plugin manifests for Codex are in `.codex-plugin/` and `.agents/plugins/marketplace.json`. The folder clone above is the install this README documents.
-
-See which engines are ready:
+See which engines are ready, from the skill folder:
 
 ```bash
 node scripts/check.mjs
 ```
+
+From a clone of this repo, the same check is `node skills/imagegen-swarm/scripts/check.mjs`.
 
 </details>
 
@@ -109,33 +121,29 @@ cat > jobs.json <<'EOF'
   {"id": "night",  "prompt": "the same lemon slice, but at night", "ref": ["out/lemon.png"]}
 ]
 EOF
-node scripts/batch.mjs --jobs jobs.json --out out/
+node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-Each job needs `id` and `prompt`; `aspect`, `ref`, `video` and `engine` are optional. Output lands in `out/<id>.png`, progress prints as JSON lines, and `out/batch-results.json` records which engine made each image. Single engines also work on their own, e.g. `node scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](SKILL.md).
+Each job needs `id` and `prompt`; `aspect`, `ref`, `video` and `engine` are optional. Output lands in `out/<id>.png`, progress prints as JSON lines, and `out/batch-results.json` records which engine made each image. Single engines also work on their own, e.g. `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). From the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
 
 ## Tests
 
 ```bash
-node evals/run.mjs out/                         # every fixed task, including a mixed batch
-node evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node skills/imagegen-swarm/evals/run.mjs out/                         # every fixed task, including a mixed batch
+node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ```
 
 ## Layout
 
 ```
-├─ SKILL.md          skill definition and engine guide
-├─ SETUP.md          install and login per engine
-├─ AGENTS.md         entry point for an agent handed this repo
-├─ CHANGELOG.md      release notes
-├─ scripts/          batch.mjs (work-stealing), one script per engine, jimeng.mjs (Dreamina runner), imgtool.py, check.mjs
-├─ references/       codex.md, lovart.md
-├─ evals/            fixed tasks with a scoring rubric, run.mjs
-├─ docs/             README images
-├─ .claude-plugin/   Claude Code plugin manifest
-├─ .codex-plugin/    Codex plugin manifest
-├─ .agents/          Codex marketplace manifest
-└─ .github/          CI and bug report template
+├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references, evals
+├─ docs/                    README images
+├─ AGENTS.md                entry point for an agent handed this repo
+├─ CHANGELOG.md             release notes
+├─ .claude-plugin/          Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
+├─ .codex-plugin/           Codex plugin manifest (skills: ./skills/)
+├─ .agents/                 Codex marketplace manifest
+└─ .github/                 CI and bug report template
 ```
 
 ## Sample output
@@ -146,11 +154,11 @@ node evals/run.mjs out/ --only gemini-t2i,batch-mixed
 
 **Do I need every engine logged in?**
 
-No. One is enough. Every engine you add makes a batch faster. Set up only the ones you want. `node scripts/check.mjs` shows which ones are ready. An engine with no login is shut down, and its job goes back to the queue.
+No. One is enough. Every engine you add makes a batch faster. Set up only the ones you want. `node skills/imagegen-swarm/scripts/check.mjs` shows which ones are ready. An engine with no login is shut down, and its job goes back to the queue.
 
 **Is my login safe?**
 
-The skill contains no accounts or keys. Each engine keeps its login in its own folder. Do not bundle those folders when you share the skill. Lovart's AK/SK go in `~/.lovart/env` with mode `600`, not in chat and not in git. The folders are listed in [SETUP.md](SETUP.md).
+The skill contains no accounts or keys. Each engine keeps its login in its own folder. Do not bundle those folders when you share the skill. Lovart's AK/SK go in `~/.lovart/env` with mode `600`, not in chat and not in git. The folders are listed in [SETUP.md](skills/imagegen-swarm/SETUP.md).
 
 **What happens when a quota runs out?**
 
