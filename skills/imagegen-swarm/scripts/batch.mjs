@@ -197,9 +197,19 @@ async function main() {
   // 每次尝试（成功、失败、被停掉）都记下来，时间线用
   const attempts = [];
   let running = 0, serial = 0;
+  // 一次尝试从开工算到收尾（量比例、清临时文件、把没出成的图退回队列）都算正在跑：
+  // 别的通道看到没人在跑、队列也空才收工，收尾没做完就把计数减掉的话，退回来的图会没人接
   async function attempt(engine, n, job) {
-    const e = ENGINES[engine];
     running++;
+    try {
+      await attemptOnce(engine, n, job);
+    } finally {
+      running--;
+    }
+  }
+
+  async function attemptOnce(engine, n, job) {
+    const e = ENGINES[engine];
     job.tried.push(engine);
     const record = { id: job.id, engine, lane: n, started: new Date().toISOString() };
     job.active.push(record);
@@ -215,7 +225,6 @@ async function main() {
     const r = await exec(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
     delete record.child;
     record.finished = record.finished ?? new Date().toISOString();
-    running--;
     job.active.splice(job.active.indexOf(record), 1);
     const line = r.stdout.trim().split('\n').at(-1) ?? '';
     // 被停掉的那份，或别人已经交卷的那份，不再解析、不再当成失败
