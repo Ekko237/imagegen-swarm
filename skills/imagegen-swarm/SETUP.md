@@ -37,6 +37,45 @@ chmod +x ~/tools/lovart-skill/lv
 
 `query-mode` returning JSON means the wrapper and the key work. It does not prove the account has credits.
 
+## Pay-per-image API line (optional)
+
+Keeps generating when every subscription runs out at once; you pay only for what you use. Off unless configured. Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then write the config:
+
+```bash
+mkdir -p ~/.config/imagegen-swarm && cat > ~/.config/imagegen-swarm/api.json <<'EOF'
+{
+  "provider": "openai",
+  "model": "gpt-image-2",
+  "quality": "low",
+  "price_per_image": 0.01,
+  "budget_per_batch": 1,
+  "budget_per_month": 10,
+  "lanes": 4
+}
+EOF
+```
+
+| Field | Meaning |
+|---|---|
+| `provider` | `openai` or `gemini` |
+| `model` | openai e.g. `gpt-image-2`, `gpt-image-1.5`; gemini e.g. `gemini-nano-banana-2.1`, `gemini-3-pro-image` |
+| `price_per_image` | estimated USD per image from your provider's price list for your quality and size; used for budgets and the ledger |
+| `budget_per_batch` / `budget_per_month` | most USD one batch or one calendar month may spend; the line stops before going over |
+| `quality` | openai only, default `low` |
+| `image_size` | gemini only: `1K` (default), `2K`, `4K` |
+| `base_url` | optional, an OpenAI-compatible gateway |
+| `key_env` / `key_file` | which environment variable holds the key (default `OPENAI_API_KEY` / `GEMINI_API_KEY`), or a file with mode 600 |
+| `lanes` | lane count, default 4 |
+| `ratios` / `max_refs` | optional overrides when your model supports different ratios or reference counts than the built-in table |
+
+To keep the key in a file:
+
+```bash
+umask 077 && printf '%s' 'your-key' > ~/.config/imagegen-swarm/api-key && chmod 600 ~/.config/imagegen-swarm/api-key
+```
+
+Then add `"key_file": "~/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is `~/.config/imagegen-swarm/api-spend.jsonl`, one line per image.
+
 ## Check
 
 ```bash

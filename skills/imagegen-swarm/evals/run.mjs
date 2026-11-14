@@ -4,12 +4,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadApiConfig } from '../scripts/api-image.mjs';
 
 // 用法：node evals/run.mjs <输出目录> [--only id,id]
 // 逐项跑 evals.json 的固定任务，核对机器能查的 checks；content 一栏留给评委看图打分
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
-const SCRIPTS = { gemini: 'gemini-image.mjs', jimeng: 'jimeng-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs' };
+const SCRIPTS = { gemini: 'gemini-image.mjs', jimeng: 'jimeng-image.mjs', muse: 'muse-image.py', grok: 'grok-image.mjs', codex: 'codex-image.mjs', lovart: 'lovart.mjs', api: 'api-image.mjs' };
+const API_ON = Boolean(loadApiConfig());
 function engineOffNames() {
   const dirs = process.env.IMAGE_GEN_ENGINE_OFF
     ? [process.env.IMAGE_GEN_ENGINE_OFF]
@@ -51,6 +53,8 @@ async function main() {
     if (only && !only.has(task.id)) continue;
     // 停用的引擎不跑，记为跳过
     if (OFF.includes(task.engine)) { console.log(JSON.stringify({ id: task.id, engine: task.engine, skipped: 'engine turned off' })); continue; }
+    // 付费线路没配置就跳过；配置了的话这两项每次都真花钱
+    if (task.engine === 'api' && !API_ON) { console.log(JSON.stringify({ id: task.id, engine: task.engine, skipped: 'api line not configured' })); continue; }
     if (task.engine === 'batch') {
       // 抢活：清单交给 batch.mjs，查全部出完、比例都对（batch 自己核对）、至少几家引擎接到活
       const dir = path.join(out, task.id);

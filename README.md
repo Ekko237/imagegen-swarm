@@ -40,6 +40,7 @@ Image tools give you weekly or monthly quotas that mostly sit unused. Running on
 * **Correct**: checks every file to confirm it is new from this run, re-runs wrong aspect ratios on another engine, and output is always real PNG.
 * **Fits your machine**: lane counts scale with RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more. Want to keep memory free for other apps? Cap memory usage with `IMAGE_GEN_MEMORY_GB=4`, or set exact lane counts with `--lanes gemini=2,codex=2`.
 * **Resumable**: rerun the same job list and already-finished images are skipped.
+* **Optional paid last resort**: add a pay-per-image API line (OpenAI or Gemini API). It only takes images no subscription engine can take, so the queue keeps going when every quota runs dry at once, and it stops at the per-batch and per-month budgets you set.
 
 ## Engines
 
@@ -51,6 +52,7 @@ Image tools give you weekly or monthly quotas that mostly sit unused. Running on
 | **gemini** | images, edits (up to 3 references) | Antigravity CLI's `generate_image` |
 | **muse** | images, reference images | Muse (muse.ai) driven by a headless browser |
 | **lovart** | images, reference images | the official Lovart CLI (your AK/SK) |
+| **api** (optional, paid) | images, edits | OpenAI Images API or Gemini API with your own key, pay per image |
 
 You only need one engine logged in. Every engine you add makes batches faster.
 
@@ -165,11 +167,11 @@ The skill contains no accounts or keys. Each engine stores its login in its own 
 
 **What happens when a quota runs out?**
 
-When an engine reports exhausted quota, no login, or no install, it shuts down and puts its current image back in the queue. A standard rate limit (429) backs off and only shuts the engine down after three consecutive rate-limit failures. Failed images retry on another untried engine, up to `--tries` engines (default 3). If every engine runs out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
+When an engine reports exhausted quota, no login, or no install, it shuts down and puts its current image back in the queue. A standard rate limit (429) backs off and only shuts the engine down after three consecutive rate-limit failures. Failed images retry on another untried engine, up to `--tries` engines (default 3). If you configured the pay-per-image api line, it takes over from there until its budget is used. If every engine runs out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
 
 **Do I need an API key?**
 
-Not for most engines. Codex and Jimeng use the accounts you already have. Grok, Gemini, and Muse use their own account logins. Only Lovart requires its official AK/SK, stored on your machine.
+Not for most engines. Codex and Jimeng use the accounts you already have. Grok, Gemini, and Muse use their own account logins. Only Lovart requires its official AK/SK, stored on your machine. The optional pay-per-image line uses your own OpenAI or Gemini API key; see [SETUP.md](skills/imagegen-swarm/SETUP.md).
 
 **Which agents does this run in?**
 

@@ -7,8 +7,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
-  failureText, medianSeconds, shouldSteal,
+  failureText, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch.mjs';
+import { engineSpec, loadApiConfig, monthSpent, openaiSize } from './api-image.mjs';
 import {
   extractGenerated, parseAgyReply, parseEncodedArg, parseToolArgs, parseTranscript, transcriptFile,
 } from './gemini-image.mjs';
@@ -360,6 +361,110 @@ await checkAsync('symlink launch runs main; a missing entry path does not', asyn
     assert.equal(imported.code, 0, imported.stderr);
     assert.match(imported.stdout, /imported-only/);
     assert.doesNotMatch(imported.stdout + imported.stderr, /require --jobs|batch\.mjs --jobs/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+check('paid line only takes images no subscription engine can take', () => {
+  assert.equal(paidMayTake({ named: false, subscriptionCanTake: true }), false);
+  assert.equal(paidMayTake({ named: false, subscriptionCanTake: false }), true);
+  assert.equal(paidMayTake({ named: true, subscriptionCanTake: true }), true);
+});
+
+check('paid budget counts in-flight images against batch and month caps', () => {
+  const base = { price: 0.04, budgetBatch: 0.1, monthSpent: 0, budgetMonth: 10 };
+  assert.equal(paidBudgetLeft({ ...base, committed: 0 }), null);
+  assert.equal(paidBudgetLeft({ ...base, committed: 1 }), null);
+  assert.match(paidBudgetLeft({ ...base, committed: 2 }), /本批 API 预算用完/);
+  assert.match(paidBudgetLeft({ ...base, budgetBatch: 5, monthSpent: 9.97, committed: 0 }), /本月 API 预算用完/);
+  assert.equal(classifyEngineError(paidBudgetLeft({ ...base, committed: 2 })), 'down');
+});
+
+check('paid API errors map to down / rate_limit / retry', () => {
+  assert.equal(classifyEngineError('api: unauthorized (HTTP 401): bad key'), 'down');
+  assert.equal(classifyEngineError('api: insufficient balance (HTTP 402): {}'), 'down');
+  assert.equal(classifyEngineError('api: HTTP 429: {"error":{"code":"insufficient_quota"}}'), 'down');
+  assert.equal(classifyEngineError('api: HTTP 429: {"error":{"status":"RESOURCE_EXHAUSTED"}}'), 'rate_limit');
+  assert.equal(classifyEngineError('api: not_configured: set OPENAI_API_KEY'), 'down');
+  assert.equal(classifyEngineError('api: HTTP 400: content policy violation'), 'retry');
+});
+
+check('openai sizes follow the model', () => {
+  assert.equal(openaiSize('gpt-image-1.5', '3:2'), '1536x1024');
+  assert.throws(() => openaiSize('gpt-image-1', '16:9'), /only supports/);
+  for (const aspect of ['16:9', '9:16', '4:5', '21:9', '1:1']) {
+    const [w, h] = openaiSize('gpt-image-2', aspect).split('x').map(Number);
+    const [a, b] = aspect.split(':').map(Number);
+    assert.equal(w % 16, 0); assert.equal(h % 16, 0);
+    assert.ok(Math.abs(w / h - a / b) / (a / b) < 0.03, `${aspect} -> ${w}x${h}`);
+  }
+  assert.throws(() => openaiSize('gpt-image-2', '4:1'), /1:3 and 3:1/);
+});
+
+check('api engine spec: ratios and reference limits per model', () => {
+  const g25 = engineSpec({ provider: 'gemini', model: 'gemini-2.5-flash-image' });
+  assert.equal(g25.maxRefs, 3);
+  assert.ok(g25.acceptsRatio('4:5'));
+  assert.ok(!g25.acceptsRatio('8:1'));
+  const nb = engineSpec({ provider: 'gemini', model: 'gemini-nano-banana-2.1' });
+  assert.equal(nb.maxRefs, 14);
+  assert.ok(nb.acceptsRatio('8:1'));
+  const oa = engineSpec({ provider: 'openai', model: 'gpt-image-2' });
+  assert.ok(oa.acceptsRatio('16:10'));
+  assert.ok(!oa.acceptsRatio('4:1'));
+  assert.ok(!engineSpec({ provider: 'openai', model: 'gpt-image-1' }).acceptsRatio('16:9'));
+});
+
+check('month spend only counts this month', () => {
+  const rows = [{ month: '2026-11', usd: 0.04 }, { month: '2026-11', usd: 0.05 }, { month: '2026-10', usd: 9 }].map(r => JSON.stringify(r)).join('\n');
+  assert.deepEqual(monthSpent(rows, new Date(2026, 10, 13)), { month: '2026-11', usd: 0.09, images: 2 });
+});
+
+await checkAsync('api config: absent means off, missing price is an error', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'api-cfg-'));
+  try {
+    assert.equal(loadApiConfig(path.join(dir, 'none.json')), null);
+    await writeFile(path.join(dir, 'bad.json'), JSON.stringify({ provider: 'openai', model: 'gpt-image-2', budget_per_batch: 1, budget_per_month: 5 }));
+    assert.throws(() => loadApiConfig(path.join(dir, 'bad.json')), /price_per_image/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// 真实跑 batch.mjs：没配 key 的付费线路，不会产生任何请求和花费
+async function paidBatch(dir, jobs, args) {
+  const config = path.join(dir, 'api.json');
+  await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2', key_env: 'IMAGE_GEN_TEST_NO_KEY', price_per_image: 0.04, budget_per_batch: 1, budget_per_month: 5 }));
+  await writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs));
+  const r = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out'), ...args],
+    { IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'), IMAGE_GEN_TEST_NO_KEY: '' });
+  return r.stdout.trim().split('\n').map(line => JSON.parse(line));
+}
+
+await checkAsync('batch hands an image to the paid line when no subscription engine can take it', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'api-batch-'));
+  try {
+    // grok 没有 16:10，只有付费线路接得了
+    const events = await paidBatch(dir, [{ id: 'wide', prompt: 'x', aspect: '16:10' }], ['--engines', 'grok,api']);
+    assert.ok(events.some(e => e.event === 'start' && e.engine === 'api'), JSON.stringify(events));
+    assert.ok(!events.some(e => e.event === 'start' && e.engine === 'grok'));
+    const downEvent = events.find(e => e.event === 'engine_down' && e.engine === 'api');
+    assert.match(downEvent.reason, /not_configured/);
+    assert.equal(events.at(-1).failed, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('batch keeps the paid line idle while a subscription engine can still take the image', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'api-batch-'));
+  try {
+    // gemini 接得了 1:1，只是这次没给它开通道：付费线路也不能接
+    const events = await paidBatch(dir, [{ id: 'sq', prompt: 'x', aspect: '1:1' }], ['--engines', 'gemini,api', '--lanes', 'gemini=0']);
+    assert.ok(!events.some(e => e.event === 'start'), JSON.stringify(events));
+    assert.equal(events.at(-1).failed, 1);
+    assert.deepEqual(events.at(-1).paid, { images: 0, usd: 0, month_usd: 0, budget_per_month: 5 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
