@@ -46,8 +46,8 @@ mkdir -p ~/.config/imagegen-swarm && cat > ~/.config/imagegen-swarm/api.json <<'
 {
   "provider": "openai",
   "model": "gpt-image-2",
-  "quality": "low",
-  "price_per_image": 0.01,
+  "quality": "medium",
+  "price_per_image": 0.05,
   "budget_per_batch": 1,
   "budget_per_month": 10,
   "lanes": 4
