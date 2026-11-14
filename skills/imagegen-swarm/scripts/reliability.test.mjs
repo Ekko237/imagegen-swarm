@@ -421,12 +421,14 @@ check('month spend only counts this month', () => {
   assert.deepEqual(monthSpent(rows, new Date(2026, 10, 13)), { month: '2026-11', usd: 0.09, images: 2 });
 });
 
-await checkAsync('api config: absent means off, missing price is an error', async () => {
+await checkAsync('api config: absent means off, missing price is an error, quality defaults to medium', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'api-cfg-'));
   try {
     assert.equal(loadApiConfig(path.join(dir, 'none.json')), null);
     await writeFile(path.join(dir, 'bad.json'), JSON.stringify({ provider: 'openai', model: 'gpt-image-2', budget_per_batch: 1, budget_per_month: 5 }));
     assert.throws(() => loadApiConfig(path.join(dir, 'bad.json')), /price_per_image/);
+    await writeFile(path.join(dir, 'ok.json'), JSON.stringify({ provider: 'openai', model: 'gpt-image-2', price_per_image: 0.05, budget_per_batch: 1, budget_per_month: 5 }));
+    assert.equal(loadApiConfig(path.join(dir, 'ok.json')).quality, 'medium');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

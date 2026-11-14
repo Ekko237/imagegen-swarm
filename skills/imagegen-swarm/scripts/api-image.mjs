@@ -46,7 +46,7 @@ export function loadApiConfig(file = CONFIG_FILE) {
     base: String(c.base_url ?? PROVIDERS[c.provider].base).replace(/\/+$/, ''),
     keyEnv: c.key_env ?? PROVIDERS[c.provider].keyEnv,
     keyFile: c.key_file ? path.resolve(homedir(), c.key_file.replace(/^~\//, '')) : null,
-    quality: c.quality ?? 'low', imageSize: c.image_size ?? '1K',
+    quality: c.quality ?? 'medium', imageSize: c.image_size ?? '1K',
     price: Number(c.price_per_image), budgetBatch: Number(c.budget_per_batch), budgetMonth: Number(c.budget_per_month),
     lanes: Number(c.lanes ?? 4), maxRefs: c.max_refs, ratios: c.ratios,
   };
