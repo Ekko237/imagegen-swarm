@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
+import { engineSpec, loadApiConfig, readLedger } from './api-image.mjs';
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
 // 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
@@ -20,6 +21,13 @@ const ENGINES = {
   lovart: { script: 'lovart.mjs', ratios: null, ratioFlag: '--aspect', maxRefs: Infinity, extra: ['--json'] },
   muse: { script: 'muse-image.py', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: Infinity },
 };
+// 按次付费的 API 线路（最后一档）：写了 ~/.config/imagegen-swarm/api.json 才开。
+// 只接订阅引擎都接不了的图（都没额度、都试过、或比例和参考图数都不合适），从不抢尾单，花到本批或本月预算就关掉
+const API = loadApiConfig();
+if (API) {
+  const spec = engineSpec(API);
+  ENGINES.api = { script: 'api-image.mjs', ratios: null, acceptsRatio: spec.acceptsRatio, ratioFlag: '--aspect', maxRefs: spec.maxRefs, paid: true, extra: ['--json'] };
+}
 // 通道数以 8GB 内存为基准（M1 实测同时 12 份单张不变慢、内存还剩约 30%）：Gemini、Codex 6 条，即梦、Grok 4 条，Lovart 2 条；
 // 按本机内存等比例增减，每家至少 1 条、最多 1.5 倍，Muse 只有一个专用浏览器固定 1 条；排在前面的先接活
 // 停用开关：~/.config/imagegen-swarm/engine-off/<引擎名> 存在就不开这家的通道（IMAGE_GEN_ENGINE_OFF 可改目录）。
@@ -34,16 +42,18 @@ function engineOffNames() {
 }
 const OFF = engineOffNames();
 // 各家单张耗时的起始估计（秒），开跑后按本批实测的中位数更新
-const TYPICAL_SECONDS = { gemini: 30, jimeng: 35, codex: 35, grok: 55, lovart: 45, muse: 110 };
+const TYPICAL_SECONDS = { gemini: 30, jimeng: 35, codex: 35, grok: 55, lovart: 45, muse: 110, api: 30 };
 const BASE_LANES = { gemini: 6, jimeng: 4, codex: 6, grok: 4, lovart: 2, muse: 1 };
 // IMAGE_GEN_MEMORY_GB 可指定按多大内存来定通道数（想给别的程序留内存时设小一点）
 const MEMORY_GB = Number(process.env.IMAGE_GEN_MEMORY_GB ?? totalmem() / 2 ** 30);
 const DEFAULT_LANES = Object.fromEntries(Object.entries(BASE_LANES).map(([engine, n]) =>
   [engine, engine === 'muse' ? 1 : Math.max(1, Math.min(Math.round(n * 1.5), Math.round(n * MEMORY_GB / 8)))]));
+// API 线路只发网络请求，不占内存，通道数照配置文件的 lanes（默认 4）
+if (API) DEFAULT_LANES.api = API.lanes;
 // 额度用完、没登录、没装：立刻停用。普通 429 / 限流先退避，连续这么多次才停用。
 export const RATE_LIMIT_STRIKES = 3;
 export const STEAL_FACTOR = 1.5;
-const QUOTA_DOWN = /\bquota\b|\bcredits?\b|积分|余额|usage limit|weekly limit|insufficient\s+(?:credits?|quota|balance|funds)|not enough\s+(?:credits?|quota|balance)|out of\s+(?:credits?|quota)/i;
+const QUOTA_DOWN = /\bquota\b|\bcredits?\b|积分|余额|insufficient_quota|预算用完|budget used up|insufficient balance|usage limit|weekly limit|insufficient\s+(?:credits?|quota|balance|funds)|not enough\s+(?:credits?|quota|balance)|out of\s+(?:credits?|quota)/i;
 const AUTH_DOWN = /unauthori[sz]ed|\bnot logged[ -]?in\b|\blog[ -]?in\b|authentication required|ComplianceConfirmation|not_configured/i;
 // 「not found / ENOENT」只认引擎本身没装。参考图或输出文件找不到不算整家引擎挂了。
 const NOT_INSTALLED = /not[_\s-]?installed|找不到\s*lv|\b(?:agy|codex(?:\s+CLI|\s+path)?|grok|dreamina|lv|muse|playwright)\s+not found\b|\bnot found:\s*(?:agy|codex|grok|dreamina|lv|muse)\b|\bcommand not found\b|\bspawn\w*\b[^\n]{0,200}\bENOENT\b/i;
@@ -89,6 +99,19 @@ export function shouldSteal({ activeCount, holderTypical, holderElapsed }) {
   return holderElapsed > holderTypical * STEAL_FACTOR;
 }
 
+// 付费线路只在没有一家订阅引擎接得了这张图时才接；清单点名要它的直接接
+export function paidMayTake({ named, subscriptionCanTake }) {
+  return named || !subscriptionCanTake;
+}
+
+// 再开一张付费图后，本批（含正在做的）和本月的估算花费都不能超过预算
+export function paidBudgetLeft({ price, committed, budgetBatch, monthSpent, budgetMonth }) {
+  const next = (committed + 1) * price;
+  if (next > budgetBatch + 1e-9) return `本批 API 预算用完：上限 $${budgetBatch}，每张约 $${price}（budget used up）`;
+  if (monthSpent + next > budgetMonth + 1e-9) return `本月 API 预算用完：已花约 $${monthSpent}，上限 $${budgetMonth}（budget used up）`;
+  return null;
+}
+
 // 已有一份做完，或这一份是被取消的：丢掉，不要当成失败，也不要再改写出的图。
 export function attemptDisposition({ cancelled, won, code, status }) {
   if (cancelled || won) return 'ignore';
@@ -101,7 +124,8 @@ function parse(argv) {
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') {
-      console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse] [--lanes gemini=2,muse=1] [--tries 3]\n' +
+      console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse,api] [--lanes gemini=2,muse=1] [--tries 3]\n' +
+        'api 是按次付费的最后一档，写了 ~/.config/image-gen/api.json 才有\n' +
         'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）');
       process.exit(0);
     }
@@ -115,7 +139,10 @@ function parse(argv) {
     else throw new Error(`invalid argument: ${flag}`);
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
-  for (const e of o.engines) if (!ENGINES[e]) throw new Error(`unknown engine: ${e}`);
+  for (const e of o.engines) {
+    if (e === 'api' && !API) throw new Error('api engine is not configured: write ~/.config/image-gen/api.json (see SETUP.md)');
+    if (!ENGINES[e]) throw new Error(`unknown engine: ${e}`);
+  }
   o.engines = o.engines.filter(e => !OFF.includes(e));
   return o;
 }
@@ -175,12 +202,20 @@ async function main() {
     if (existsSync(job.file) && (await stat(job.file)).size > 0) done.push({ id: job.id, file: job.file, engine: 'existing' });
     else queue.push(job);
   }
-  const fits = (engine, job) => {
+  const capable = (engine, job) => {
     const e = ENGINES[engine];
+    const ratioOk = !job.aspect || (e.acceptsRatio ? e.acceptsRatio(job.aspect) : !e.ratios || e.ratios.includes(job.aspect));
     return !down.has(engine) && !job.tried.includes(engine) && (!job.engine || job.engine === engine)
-      && (!job.video || e.video) && (!job.aspect || !e.ratios || e.ratios.includes(job.aspect))
+      && (!job.video || e.video) && ratioOk
       && job.ref.length <= e.maxRefs && (!job.video || job.ref.length > 0 || e.textVideo);
   };
+  // 订阅引擎还在限流退避也算接得了：付费线路等它，不为了快去花钱
+  const fits = (engine, job) => capable(engine, job) && (!ENGINES[engine].paid || paidMayTake({
+    named: job.engine === engine,
+    subscriptionCanTake: o.engines.some(other => !ENGINES[other].paid && capable(other, job)),
+  }));
+  const monthAtStart = API ? readLedger().usd : 0;
+  let paidCommitted = 0;
   // 没有任何还开着、还没试过的引擎能接的活，判定失败
   const settleOrphans = () => {
     for (let i = queue.length - 1; i >= 0; i--) {
@@ -201,10 +236,13 @@ async function main() {
   // 别的通道看到没人在跑、队列也空才收工，收尾没做完就把计数减掉的话，退回来的图会没人接
   async function attempt(engine, n, job) {
     running++;
+    // 付费线路开工就先占上这张的预算，没出成再还回去
+    if (ENGINES[engine].paid) paidCommitted++;
     try {
       await attemptOnce(engine, n, job);
     } finally {
       running--;
+      if (ENGINES[engine].paid && !done.some(d => d.id === job.id && d.engine === engine && d.lane === n)) paidCommitted--;
     }
   }
 
@@ -304,8 +342,23 @@ async function main() {
         continue;
       }
       const index = queue.findIndex(job => fits(engine, job));
+      if (index >= 0 && ENGINES[engine].paid) {
+        const over = paidBudgetLeft({ price: API.price, committed: paidCommitted, budgetBatch: API.budgetBatch, monthSpent: monthAtStart, budgetMonth: API.budgetMonth });
+        if (over) {
+          down.set(engine, over);
+          log({ event: 'engine_down', engine, reason: over });
+          settleOrphans();
+          return;
+        }
+      }
       if (index >= 0) {
         await attempt(engine, n, queue.splice(index, 1)[0]);
+        continue;
+      }
+      // 付费线路不抢尾单
+      if (ENGINES[engine].paid) {
+        if (running === 0) return;
+        await new Promise(resolve => setTimeout(resolve, 1000));
         continue;
       }
       // 队列空了才考虑抢尾单：持有者超过自己中位数的 1.5 倍才抢，已经有一份重复就不再抢。
@@ -335,10 +388,12 @@ async function main() {
   settleOrphans();
   for (const job of queue.splice(0)) failed.push({ id: job.id, tried: job.tried, reason: job.reason ?? '所有通道都已退出' });
   // 被停掉的那几份留下的工作目录一并清掉
-  for (const name of readdirSync(o.out)) if (/^\.(attempt-|codex-img-|gemini-image-|grok-image-|jimeng-image-|muse-image-|lovart-)/.test(name)) await rm(path.join(o.out, name), { recursive: true, force: true });
+  for (const name of readdirSync(o.out)) if (/^\.(attempt-|codex-img-|gemini-image-|grok-image-|jimeng-image-|muse-image-|lovart-|api-image-)/.test(name)) await rm(path.join(o.out, name), { recursive: true, force: true });
   const byEngine = Object.fromEntries(o.engines.map(engine => [engine, done.filter(d => d.engine === engine).length]));
   const last = done.filter(d => d.finished).map(d => Date.parse(d.finished));
-  const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine,
+  const paidImages = done.filter(d => d.engine === 'api').length;
+  const paid = API ? { images: paidImages, usd: Math.round(paidImages * API.price * 10000) / 10000, month_usd: readLedger().usd, budget_per_month: API.budgetMonth } : undefined;
+  const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
     engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
     results: { done, failed, attempts } };
   await writeFile(path.join(o.out, 'batch-results.json'), JSON.stringify(summary, null, 2));

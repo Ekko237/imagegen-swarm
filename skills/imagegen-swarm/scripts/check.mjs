@@ -135,6 +135,24 @@ async function main() {
             "then create ~/.lovart/env (AK/SK from the avatar menu →「Lovart 龙虾」→ Create API Key)"));
   }
 
+  line("\n[api line — pay per image, last resort]");
+  const { loadApiConfig, readKey, readLedger, CONFIG_FILE } = await import("./api-image.mjs");
+  const api = loadApiConfig();
+  let apiReady = false;
+  if (!api) {
+    line(`  ➖ off — no ${CONFIG_FILE} (optional; see SETUP.md)`);
+  } else {
+    // 只调免费的模型列表接口验证 key，不出图、不花钱
+    const key = readKey(api);
+    const url = api.provider === "openai" ? `${api.base}/v1/models` : `${api.base}/v1beta/models`;
+    const headers = api.provider === "openai" ? { Authorization: `Bearer ${key}` } : { "x-goog-api-key": key };
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+    apiReady = res.ok;
+    const spent = readLedger();
+    line(apiReady ? ok(`${api.provider} key works (${api.model})`) : no(`${api.provider} key rejected: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`));
+    line(`  💵 ${spent.month}: ${spent.images} images, about $${spent.usd} of $${api.budgetMonth}; per batch up to $${api.budgetBatch}, about $${api.price} each`);
+  }
+
   line("\n==========================");
   line(`codex  (images):        ${codexReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`grok   (images+video):  ${grokReady ? "READY ✅" : "NOT READY ❌"}`);
@@ -142,6 +160,7 @@ async function main() {
   line(`jimeng (images+video):  ${jimengReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`muse   (images):        ${museReady ? "READY ✅" : "NOT READY ❌"}`);
   line(`lovart (images):        ${lovartReady ? "READY ✅" : "NOT READY ❌"}`);
+  line(`api    (paid, last):    ${api ? (apiReady ? "READY ✅" : "NOT READY ❌") : "OFF ➖"}`);
   if (!pillowReady) { line("\nInstall Pillow first — every engine uses it."); process.exit(1); }
   if (!codexReady && !grokReady && !geminiReady && !jimengReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
   line("\nAt least one engine is ready. See SETUP.md for anything marked ❌.");

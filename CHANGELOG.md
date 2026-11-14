@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 - 2026-11-13
+
+- **Optional pay-per-image API line as the last resort.** Configure `~/.config/imagegen-swarm/api.json` with an OpenAI (`/v1/images`, or any OpenAI-compatible gateway) or Gemini API key and the queue keeps going when every subscription is out at once. The paid line takes an image only when no subscription engine can, never tail-steals, and stops before passing your per-batch or per-month budget. Every paid image is logged to `api-spend.jsonl`, and the batch summary shows images, cost and the month total. `check.mjs` verifies the key with a free model-list call. Without the config nothing changes.
+
 ## 1.1.2 - 2026-11-11
 
 - **A failed image is no longer dropped when the machine is busy.** An attempt now counts as running until its cleanup is finished (measuring the aspect ratio, removing the temp file, putting the image back in the queue). Before, the count dropped as soon as the engine exited, so idle lanes could see an empty queue with nothing running and quit, and the image that came back a moment later had no lane left to take it.

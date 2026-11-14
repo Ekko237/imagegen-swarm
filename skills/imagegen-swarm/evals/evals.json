@@ -172,6 +172,39 @@
       "content": "冒热气的陶瓷咖啡杯，极简扁平插画"
     },
     {
+      "id": "api-t2i",
+      "engine": "api",
+      "args": [
+        "--prompt",
+        "A paper sailboat on a calm blue pond, soft morning light, photo",
+        "--aspect",
+        "3:2"
+      ],
+      "checks": {
+        "status": "ok",
+        "ratio": "3:2"
+      },
+      "content": "平静蓝色池塘上的一只纸船，清晨柔光，照片质感"
+    },
+    {
+      "id": "api-edit",
+      "engine": "api",
+      "after": "api-t2i",
+      "args": [
+        "--prompt",
+        "Same photo, but the paper sailboat is bright yellow",
+        "--ref",
+        "{api-t2i}",
+        "--aspect",
+        "3:2"
+      ],
+      "checks": {
+        "status": "ok",
+        "ratio": "3:2"
+      },
+      "content": "和参考图同一只纸船、同一构图，只有纸船变成亮黄色"
+    },
+    {
       "id": "batch-mixed",
       "engine": "batch",
       "jobs": [
