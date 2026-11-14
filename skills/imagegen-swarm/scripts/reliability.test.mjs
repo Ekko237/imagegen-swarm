@@ -472,6 +472,27 @@ await checkAsync('batch keeps the paid line idle while a subscription engine can
   }
 });
 
+await checkAsync('images stopped by the paid budget say so in their failure reason', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'api-batch-'));
+  try {
+    // 每张估价 0.5 超过本批预算 0.1：一张都不发请求，两张都写明预算用完
+    const config = path.join(dir, 'api.json');
+    await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2', key_env: 'IMAGE_GEN_TEST_NO_KEY', price_per_image: 0.5, budget_per_batch: 0.1, budget_per_month: 5 }));
+    await writeFile(path.join(dir, 'jobs.json'), JSON.stringify([{ id: 'a', prompt: 'x' }, { id: 'b', prompt: 'y' }]));
+    const r = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out'), '--engines', 'api'],
+      { IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'), IMAGE_GEN_TEST_NO_KEY: '' });
+    const events = r.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(!events.some(e => e.event === 'start'), JSON.stringify(events));
+    const failedEvents = events.filter(e => e.event === 'failed');
+    assert.equal(failedEvents.length, 2);
+    for (const e of failedEvents) assert.match(e.reason, /本批 API 预算用完/);
+    const results = JSON.parse(await readFile(path.join(dir, 'out', 'batch-results.json'), 'utf8'));
+    for (const f of results.results.failed) assert.match(f.reason, /本批 API 预算用完/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 if (failed) {
   console.error(`${failed} test(s) failed`);
   process.exit(1);
