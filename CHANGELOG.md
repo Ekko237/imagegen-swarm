@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 - 2026-11-14
+
+- **Images blocked when the paid line shuts down for budget now report the budget reason.** The failure names the per-batch or per-month limit instead of the generic no-engine message.
+
 ## 1.2.1 - 2026-11-14
 
 - **The OpenAI api line now defaults to quality medium.** `gpt-image-2` at `low` showed visible block artifacts in a real test via an OpenAI-compatible gateway. The SETUP.md example uses `medium` at an estimated 0.05 USD per image.

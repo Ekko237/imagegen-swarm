@@ -345,6 +345,8 @@ async function main() {
       if (index >= 0 && ENGINES[engine].paid) {
         const over = paidBudgetLeft({ price: API.price, committed: paidCommitted, budgetBatch: API.budgetBatch, monthSpent: monthAtStart, budgetMonth: API.budgetMonth });
         if (over) {
+          // 付费线路原本接得了、被预算挡下的图，失败原因写明预算用完
+          for (const job of queue) if (fits(engine, job)) job.reason = `${engine}: ${over}`;
           down.set(engine, over);
           log({ event: 'engine_down', engine, reason: over });
           settleOrphans();
