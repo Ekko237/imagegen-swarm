@@ -1,7 +1,7 @@
 {
   "name": "imagegen-swarm",
   "description": "Generate images and videos with the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have. Lovart uses its official AK/SK.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": {
     "name": "Ekko237",
     "url": "https://github.com/Ekko237"
