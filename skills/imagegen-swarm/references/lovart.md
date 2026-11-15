@@ -21,14 +21,20 @@ node scripts/lovart.mjs --out shot.png --aspect 2:3 --ref product.jpg --prompt "
 
 ## Wrapper
 
-`scripts/lovart.mjs` runs `scripts/lovart_agent.py`. It reads `~/.lovart/env` (or `LOVART_ENV`) as
-text and checks that the file is owner-only. Only `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and
-`LOVART_BASE_URL` are kept. A mode such as `644` is refused; `600` is accepted. When the mode cannot
-be read, the client still runs, so a real "no credits" response is not hidden behind a failed
-permission check. An optional wrapper, [lovart-lv.example.sh](lovart-lv.example.sh), runs the same
-entry file and copies only those three names. It does not source the file. It uses `stat -c %a` when
-GNU stat is available, and `stat -f %Lp` otherwise. Do not clone or execute a remote copy. See
-[SETUP.md](../SETUP.md).
+`scripts/lovart.mjs` runs `scripts/lovart_agent.py`. It reads the file `$HOME/.lovart/env` (or
+`LOVART_ENV`) as text and checks that the file is owner-only. Only `LOVART_ACCESS_KEY`,
+`LOVART_SECRET_KEY`, and `LOVART_BASE_URL` are kept. A mode such as `644` is refused; `600` is
+accepted. When the mode cannot be read, the client still runs, so a real "no credits" response is
+not hidden behind a failed permission check. An optional wrapper,
+[lovart-lv.example.sh](lovart-lv.example.sh), runs the same entry file and copies only those three
+names. It does not source the file. It uses `stat -c %a` when GNU stat is available, and
+`stat -f %Lp` otherwise. Do not clone or execute a remote copy. See [SETUP.md](../SETUP.md).
+
+During `chat`, if the remote project's current name is empty, `Untitled`, or a short prefix of the
+project id, the client renames that project to the first 30 characters of the prompt. A project
+that already has another name is left unchanged. `project-add` and `project-rename` update
+`$HOME/.lovart/state.json` and, when access keys are present, also send a rename to Lovart. Do not
+run those two commands unless the user asked to add or rename that project.
 
 Underlying CLI: `lv query-mode` (check the key and billing mode), `lv upload --file x.jpg`, `lv chat
 --prompt ... --attachments <URL> --json --download --output-dir out/`, `lv set-mode

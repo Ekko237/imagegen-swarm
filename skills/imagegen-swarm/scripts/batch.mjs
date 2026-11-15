@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
 import { engineSpec, loadApiConfig, readLedger } from './api-image.mjs';
-import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
+import { RUN_MARKER_FILE, STDIO_QUIET, removableWorkPath } from './safety.mjs';
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
 // 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
@@ -23,7 +23,7 @@ const ENGINES = {
   lovart: { script: 'lovart.mjs', ratios: null, ratioFlag: '--aspect', maxRefs: Infinity, extra: ['--json'] },
   muse: { script: 'muse-image.py', ratios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], ratioFlag: '--aspect', maxRefs: Infinity },
 };
-// 按次付费的 API 线路（最后一档）：写了 ~/.config/imagegen-swarm/api.json 才开。
+// Pay-per-image last resort. On only when $HOME/.config/imagegen-swarm/api.json exists.
 // 只接订阅引擎都接不了的图（都没额度、都试过、或比例和参考图数都不合适），从不抢尾单，花到本批或本月预算就关掉
 const API = loadApiConfig();
 if (API) {
@@ -32,8 +32,10 @@ if (API) {
 }
 // 通道数以 8GB 内存为基准（M1 实测同时 12 份单张不变慢、内存还剩约 30%）：Gemini、Codex 6 条，即梦、Grok 4 条，Lovart 2 条；
 // 按本机内存等比例增减，每家至少 1 条、最多 1.5 倍，Muse 只有一个专用浏览器固定 1 条；排在前面的先接活
-// 停用开关：~/.config/imagegen-swarm/engine-off/<引擎名> 存在就不开这家的通道（IMAGE_GEN_ENGINE_OFF 可改目录）。
-// 旧目录 ~/.config/image-gen/engine-off 里的开关仍然有效，避免改名后把已经关掉的引擎重新打开。
+// Off switch: an empty file $HOME/.config/imagegen-swarm/engine-off/<engine> skips that engine.
+// IMAGE_GEN_ENGINE_OFF can point at another directory.
+// An empty file left in $HOME/.config/image-gen/engine-off still counts, so a renamed install
+// does not turn a paused engine back on.
 function engineOffNames() {
   const dirs = process.env.IMAGE_GEN_ENGINE_OFF
     ? [process.env.IMAGE_GEN_ENGINE_OFF]
@@ -63,7 +65,7 @@ const RATE_LIMIT = /\b429\b|rate[\s-]?limit|too many requests|RESOURCE_EXHAUSTED
 
 export function failureText(report) {
   const detail = report?.reason ?? report?.error ?? 'unknown error';
-  if (report?.error_kind && !String(detail).includes(String(report.error_kind))) return `${detail} (${report.error_kind})`;
+  if (report?.error_kind && !String(detail).includes(String(report.error_kind))) return (detail) + " (" + (report.error_kind) + ")";
   return String(detail);
 }
 
@@ -109,8 +111,8 @@ export function paidMayTake({ named, subscriptionCanTake }) {
 // 再开一张付费图后，本批（含正在做的）和本月的估算花费都不能超过预算
 export function paidBudgetLeft({ price, committed, budgetBatch, monthSpent, budgetMonth }) {
   const next = (committed + 1) * price;
-  if (next > budgetBatch + 1e-9) return `本批 API 预算用完：上限 $${budgetBatch}，每张约 $${price}（budget used up）`;
-  if (monthSpent + next > budgetMonth + 1e-9) return `本月 API 预算用完：已花约 $${monthSpent}，上限 $${budgetMonth}（budget used up）`;
+  if (next > budgetBatch + 1e-9) return "本批 API 预算用完：上限 $" + (budgetBatch) + "，每张约 $" + (price) + "（budget used up）";
+  if (monthSpent + next > budgetMonth + 1e-9) return "本月 API 预算用完：已花约 $" + (monthSpent) + "，上限 $" + (budgetMonth) + "（budget used up）";
   return null;
 }
 
@@ -133,18 +135,18 @@ function parse(argv) {
       process.exit(0);
     }
     const value = argv[++i];
-    if (!value) throw new Error(`missing value for ${flag}`);
+    if (!value) throw new Error("missing value for " + (flag));
     if (flag === '--jobs') o.jobs = path.resolve(value);
     else if (flag === '--out') o.out = path.resolve(value);
     else if (flag === '--engines') o.engines = value.split(',');
     else if (flag === '--lanes') for (const pair of value.split(',')) { const [k, n] = pair.split('='); o.lanes[k] = Number(n); }
     else if (flag === '--tries') o.tries = Number(value);
-    else throw new Error(`invalid argument: ${flag}`);
+    else throw new Error("invalid argument: " + (flag));
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
   for (const e of o.engines) {
     if (e === 'api' && !API) throw new Error('api engine is not configured. The user turns it on during setup (see SETUP.md). This command does not create that config.');
-    if (!ENGINES[e]) throw new Error(`unknown engine: ${e}`);
+    if (!ENGINES[e]) throw new Error("unknown engine: " + (e));
   }
   o.engines = o.engines.filter(e => !OFF.includes(e));
   return o;
@@ -153,7 +155,7 @@ function parse(argv) {
 function exec(bin, args, onChild) {
   return new Promise((resolve, reject) => {
     // 单独成一个进程组，抢尾单输了的一份可以连同它起的子进程一起停掉
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: Boolean(onChild) });
+    const child = spawn(bin, args, { stdio: [STDIO_QUIET, "pipe", "pipe"], detached: Boolean(onChild) });
     onChild?.(child);
     let stdout = '', stderr = '';
     child.stdout.on('data', d => { stdout += d; });
@@ -167,10 +169,10 @@ function exec(bin, args, onChild) {
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 async function ratioOff(file, aspect) {
   const r = await exec(PY, [path.join(here, 'imgtool.py'), 'size', file]);
-  if (r.code !== 0) throw new Error(`imgtool size failed on ${file}: ${r.stderr}`);
+  if (r.code !== 0) throw new Error("imgtool size failed on " + (file) + ": " + (r.stderr));
   const { width: w, height: h } = JSON.parse(r.stdout);
   const [a, b] = aspect.split(':').map(Number);
-  return Math.abs(w / h - a / b) / (a / b) > 0.03 ? `${w}×${h}` : null;
+  return Math.abs(w / h - a / b) / (a / b) > 0.03 ? (w) + "×" + (h) : null;
 }
 
 const log = event => console.log(JSON.stringify({ at: new Date().toISOString(), ...event }));
@@ -190,11 +192,11 @@ async function main() {
   const base = path.dirname(o.jobs);
   const ids = new Set();
   for (const job of jobs) {
-    if (!job.id || !job.prompt) throw new Error(`every job needs id and prompt: ${JSON.stringify(job)}`);
-    if (ids.has(job.id)) throw new Error(`duplicate job id: ${job.id}`);
+    if (!job.id || !job.prompt) throw new Error("every job needs id and prompt: " + (JSON.stringify(job)));
+    if (ids.has(job.id)) throw new Error("duplicate job id: " + (job.id));
     ids.add(job.id);
     job.ref = (job.ref ?? []).map(r => path.resolve(base, r));
-    job.file = path.join(o.out, `${job.id}.${job.video ? 'mp4' : 'png'}`);
+    job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
     job.tried = [];
   }
   await mkdir(o.out, { recursive: true });
@@ -259,11 +261,11 @@ async function main() {
     job.active.push(record);
     attempts.push(record);
     // 先写临时文件，赢了才改成正式文件名
-    const temp = path.join(o.out, `.attempt-${job.id}-${engine}-${serial++}${path.extname(job.file)}`);
+    const temp = path.join(o.out, ".attempt-" + (job.id) + "-" + (engine) + "-" + (serial++) + (path.extname(job.file)));
     ownedNames.add(path.basename(temp));
     const script = path.join(here, e.script);
     // Muse 不能用信号停（它的浏览器库收到中断会卡住），改用取消文件
-    record.cancelFile = engine === 'muse' ? `${temp}.cancel` : null;
+    record.cancelFile = engine === 'muse' ? (temp) + ".cancel" : null;
     if (record.cancelFile) ownedNames.add(path.basename(record.cancelFile));
     const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
       ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
@@ -283,7 +285,7 @@ async function main() {
         const off = await ratioOff(temp, job.aspect);
         if (off) {
           report.status = 'error';
-          report.reason = `比例不对：要 ${job.aspect}，交回 ${off}`;
+          report.reason = "比例不对：要 " + (job.aspect) + "，交回 " + (off);
         }
       }
     }
@@ -317,7 +319,7 @@ async function main() {
     }
     await rm(temp, { force: true });
     record.outcome = 'failed';
-    job.reason = `${engine}: ${failureText(report)}`.slice(0, 600);
+    job.reason = (engine) + ": " + (failureText(report)).slice(0, 600);
     const next = applyEngineFailure({ strikes: rateStrikes.get(engine) ?? 0 }, job.reason);
     rateStrikes.set(engine, next.strikes);
     if (next.action === 'down') {
@@ -354,7 +356,7 @@ async function main() {
         const over = paidBudgetLeft({ price: API.price, committed: paidCommitted, budgetBatch: API.budgetBatch, monthSpent: monthAtStart, budgetMonth: API.budgetMonth });
         if (over) {
           // 付费线路原本接得了、被预算挡下的图，失败原因写明预算用完
-          for (const job of queue) if (fits(engine, job)) job.reason = `${engine}: ${over}`;
+          for (const job of queue) if (fits(engine, job)) job.reason = (engine) + ": " + (over);
           down.set(engine, over);
           log({ event: 'engine_down', engine, reason: over });
           settleOrphans();

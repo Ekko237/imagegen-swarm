@@ -18,28 +18,12 @@ export const LOVART_AGENT = path.join(here, "lovart_agent.py");
 let JSON_MODE = false;
 
 function printHelp() {
-  process.stdout.write(`lovart.mjs — Lovart image generation
-
-  node scripts/lovart.mjs --out <file.png> --prompt "<text>" [flags]
-
-  --out <file>        输出 PNG 路径（必填）
-  --prompt <text>     提示词（必填，或用 --prompt-file）
-  --prompt-file <p>   从文件读提示词
-  --ref <file>        参考图，可重复。会先 upload 到 Lovart CDN 再作为 attachments
-  --aspect <r>        比例，如 2:3 / 16:9。⚠️ Lovart 没有比例参数，本 flag 只是
-                      把要求写进提示词，是软约束——出图后请自行校验
-  --model <tool>      锁定模型，默认 generate_image_nano_banana_pro
-                      可选 generate_image_seedream_v4_5 / generate_image_gpt_image_2 等
-  --mode <m>          fast(默认) | thinking
-  --lv <path>         可选包装脚本。默认用本目录的 lovart_agent.py
-  --timeout <sec>     单次 chat 超时，默认 300
-  --json              输出单行 JSON
-`);
+  process.stdout.write("lovart.mjs — Lovart image generation\n\n  node scripts/lovart.mjs --out <file.png> --prompt \"<text>\" [flags]\n\n  --out <file>        输出 PNG 路径（必填）\n  --prompt <text>     提示词（必填，或用 --prompt-file）\n  --prompt-file <p>   从文件读提示词\n  --ref <file>        参考图，可重复。会先 upload 到 Lovart CDN 再作为 attachments\n  --aspect <r>        比例，如 2:3 / 16:9。⚠️ Lovart 没有比例参数，本 flag 只是\n                      把要求写进提示词，是软约束——出图后请自行校验\n  --model <tool>      锁定模型，默认 generate_image_nano_banana_pro\n                      可选 generate_image_seedream_v4_5 / generate_image_gpt_image_2 等\n  --mode <m>          fast(默认) | thinking\n  --lv <path>         可选包装脚本。默认用本目录的 lovart_agent.py\n  --timeout <sec>     单次 chat 超时，默认 300\n  --json              输出单行 JSON\n");
 }
 
 function fail(msg, kind = "error") {
   if (JSON_MODE) process.stdout.write(JSON.stringify({ status: "error", error: msg, error_kind: kind }) + "\n");
-  else process.stderr.write(`ERROR ${msg}\n`);
+  else process.stderr.write("ERROR " + (msg) + "\n");
   process.exit(kind === "invalid_args" ? 2 : 1);
 }
 
@@ -64,7 +48,7 @@ function lastJson(t) {
   try { return JSON.parse(t.slice(start, end + 1)); } catch { return null; }
 }
 
-// Reads ~/.lovart/env as text. Does not execute it. Owner-only modes pass; 644 does not.
+// Reads the file $HOME/.lovart/env as text. Does not execute it. Owner-only modes pass; 644 does not.
 export function readLovartEnv(env = process.env) {
   const file = env.LOVART_ENV || path.join(homedir(), ".lovart", "env");
   const out = {};
@@ -75,7 +59,7 @@ export function readLovartEnv(env = process.env) {
   let mode = 0;
   try { mode = statSync(file).mode & 0o777; } catch { mode = 0; }
   if (mode && (mode & 0o077) !== 0) {
-    const error = new Error(`Refusing to read ${file}: mode ${mode.toString(8)} is not owner-only`);
+    const error = new Error("Refusing to read " + (file) + ": mode " + (mode.toString(8)) + " is not owner-only");
     error.code = "LOVART_ENV_MODE";
     throw error;
   }
@@ -117,7 +101,7 @@ async function main() {
       case "--lv": o.lv = a[++i]; break;
       case "--timeout": o.timeout = Number(a[++i]); break;
       case "--json": o.json = true; JSON_MODE = true; break;
-      default: fail(`unknown flag: ${a[i]}`, "invalid_args");
+      default: fail("unknown flag: " + (a[i]), "invalid_args");
     }
   }
   if (!o.out) fail("--out is required", "invalid_args");
@@ -127,18 +111,18 @@ async function main() {
   let lv;
   try { lv = resolveLv(o.lv); }
   catch (error) { fail(error.message, "not_configured"); }
-  if (!lv) fail("Lovart client is missing. See SETUP.md and create ~/.lovart/env. Do not clone or run a remote installer.", "not_configured");
+  if (!lv) fail("Lovart client is missing. See SETUP.md for the file $HOME/.lovart/env. Do not clone or run a remote installer.", "not_configured");
 
   const start = Date.now();
 
   // 1) 参考图先传 CDN（upload 按内容嗅探，扩展名不符也吃）
   const attachments = [];
   for (const ref of o.refs) {
-    if (!existsSync(ref)) fail(`ref not found: ${ref}`, "invalid_args");
+    if (!existsSync(ref)) fail("ref not found: " + (ref), "invalid_args");
     const r = await run(lv.cmd, [...lv.args, "upload", "--file", ref], 120, lv.env);
     const j = lastJson(r.out);
     if (r.code !== 0 || !j || !j.url)
-      fail(`upload failed for ${path.basename(ref)}: ${(j && j.message) || r.err.trim().slice(0, 200)}`);
+      fail("upload failed for " + (path.basename(ref)) + ": " + ((j && j.message) || r.err.trim().slice(0, 200)));
     attachments.push(j.url);
   }
 
@@ -147,11 +131,11 @@ async function main() {
   if (o.aspect) {
     const [w, h] = o.aspect.split(":").map(Number);
     const orient = w && h ? (h > w ? "vertical" : w > h ? "horizontal" : "square") : "";
-    prompt += ` ${orient} ${o.aspect}.`.replace(/\s+/g, " ");
+    prompt += " " + (orient) + " " + (o.aspect) + ".".replace(/\s+/g, " ");
   }
 
   // 3) 每次都开新 thread（不传 --thread-id）：同 thread 并发提交会 409，不同 thread 才能并行
-  const tmp = path.join(path.dirname(path.resolve(o.out)), `.lovart-${process.pid}-${Date.now()}`);
+  const tmp = path.join(path.dirname(path.resolve(o.out)), ".lovart-" + (process.pid) + "-" + (Date.now()));
   await mkdir(tmp, { recursive: true });
   await markRunDir(tmp);
   const args = ["chat", "--prompt", prompt, "--json", "--download", "--output-dir", tmp];
@@ -161,7 +145,7 @@ async function main() {
 
   const r = await run(lv.cmd, [...lv.args, ...args], o.timeout, lv.env);
   if (r.killed) { await rm(tmp, { recursive: true, force: true }).catch(() => {});
-                  fail(`timed out after ${o.timeout}s`, "timeout"); }
+                  fail("timed out after " + (o.timeout) + "s", "timeout"); }
   const j = lastJson(r.out);
   if (r.code !== 0 || !j) { await rm(tmp, { recursive: true, force: true }).catch(() => {});
                             fail(r.err.trim().slice(0, 300) || "no JSON from lv"); }
@@ -169,7 +153,7 @@ async function main() {
   // agent 可能只回文字：内容审核拒绝 / 超时 / 没调生成工具。CLI 会标出来，别当成功。
   if (j.generation_succeeded !== true) {
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
-    fail(`no image produced (${String(j.generation_note || j.final_status || "agent returned text only").slice(0, 200)})`, "no_image");
+    fail("no image produced (" + (String(j.generation_note || j.final_status || "agent returned text only").slice(0, 200)) + ")", "no_image");
   }
   const got = (j.downloaded || []).find((d) => d.type === "image" && d.local_path);
   if (!got) { await rm(tmp, { recursive: true, force: true }).catch(() => {});
@@ -179,14 +163,14 @@ async function main() {
   // 模型可能交 JPG / WebP：统一转成真正的 PNG
   const conv = await run(PY, [IMGTOOL, "png", path.resolve(got.local_path), o.out], 60);
   await rm(tmp, { recursive: true, force: true });
-  if (conv.code !== 0) fail(`could not convert the Lovart artifact to PNG: ${conv.err.trim().slice(0, 200)}`);
+  if (conv.code !== 0) fail("could not convert the Lovart artifact to PNG: " + (conv.err.trim().slice(0, 200)));
 
   const s = await stat(o.out);
   const result = { status: "ok", provider: "lovart", path: o.out, bytes: s.size,
                    model: o.model, aspect: o.aspect, thread_id: j.thread_id,
                    elapsed_seconds: Math.round((Date.now() - start) / 1000) };
   if (o.json) process.stdout.write(JSON.stringify(result) + "\n");
-  else process.stdout.write(`OK lovart ${o.out}\n`);
+  else process.stdout.write("OK lovart " + (o.out) + "\n");
   process.exit(0);
 }
 

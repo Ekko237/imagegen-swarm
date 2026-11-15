@@ -54,6 +54,10 @@ class AgentSkillError(Exception):
         super().__init__(message)
 
 
+# One hour. The CLI default is 180 seconds and batch passes 300. A longer wait is capped here.
+MAX_CHAT_SECONDS = 3600
+
+
 class AgentSkill:
     """Lovart Agent OpenAPI client."""
 
@@ -415,7 +419,7 @@ class AgentSkill:
 
     def chat(self, prompt: str, project_id: Optional[str] = None,
              attachments=None, thread_id=None,
-             timeout=None, auto_create_project=True,
+             timeout: Optional[int] = None, auto_create_project=True,
              prefer_models=None, include_tools=None, exclude_tools=None,
              mode: Optional[str] = None, subjects=None, kits=None) -> dict:
         """Send → poll → get result. One-shot convenience method.
@@ -442,7 +446,9 @@ class AgentSkill:
                         prefer_models=prefer_models,
                         include_tools=include_tools, exclude_tools=exclude_tools,
                         mode=mode, subjects=subjects, kits=kits)
-        status = self.poll(tid, timeout=timeout)
+        # None or a non-positive value keeps this client's timeout. Never wait past one hour.
+        requested = self.timeout if timeout is None or timeout <= 0 else timeout
+        status = self.poll(tid, timeout=min(int(requested), MAX_CHAT_SECONDS))
 
         if status == "pending_confirmation":
             pc = getattr(self, '_pending_confirmation', {})

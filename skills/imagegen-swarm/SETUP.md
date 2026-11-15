@@ -23,13 +23,13 @@ Generation does not create these directories.
 | `~/.grok` | Grok CLI login | Grok image and video |
 | `~/.gemini` | Antigravity CLI login | Gemini image |
 | `~/.dreamina_cli` | Dreamina CLI login | Jimeng image and video |
-| `~/.config/imagegen-swarm/muse-browser` | Playwright profile. Created by `scripts/muse-image.py --login` | Stay signed in to Muse |
-| `~/.lovart/env` | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL`. Mode 600 | Sign Lovart requests. Other lines are ignored |
-| `~/.lovart/state.json` | Project and thread ids, only if `~/.lovart` already exists | Resume a Lovart project |
-| `~/.config/imagegen-swarm/api.json` | Provider, model, price, budgets. No API key | Paid last resort |
-| `~/.config/imagegen-swarm/api-key` | API key, mode 600, only if you choose a key file | Paid last resort |
-| `~/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per finished paid image | Monthly budget |
-| `~/.config/imagegen-swarm/engine-off/<engine>` | Empty marker | Pause that engine |
+| `$HOME/.config/imagegen-swarm/muse-browser` | Playwright profile directory. Created by `scripts/muse-image.py --login` only | Stay signed in to Muse. Generation does not create it |
+| `$HOME/.lovart/env` | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL`. Mode 600. Read as text, not executed | Sign Lovart requests. Other lines in this file are ignored |
+| `$HOME/.lovart/state.json` | Project and thread ids. Updated only when `$HOME/.lovart` already exists. Setup does not create this file | Resume a Lovart project |
+| `$HOME/.config/imagegen-swarm/api.json` | Provider, model, estimated price, budgets. No API key | Paid last resort. This is the only file the paid setup command below creates |
+| `$HOME/.config/imagegen-swarm/api-key` | API key, mode 600, only if you choose a key file | Paid last resort. Read at request time |
+| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per finished paid image | Compare the batch reservation with the monthly cap |
+| `$HOME/.config/imagegen-swarm/engine-off/<engine>` | One empty file named for that engine | Pause that engine until you delete the file |
 
 | Engine | Install and log in | Login lives in |
 |---|---|---|
@@ -37,8 +37,8 @@ Generation does not create these directories.
 | grok | Install the Grok Build CLI and log in; `grok models` should list models | `~/.grok` |
 | gemini | Install the Antigravity CLI (default `~/.local/bin/agy`, or set `AGY_BIN` / `--agy`) and log in; `agy models` should list Gemini models | `~/.gemini` |
 | jimeng | Install the pinned Dreamina binary below, reopen the terminal, then `dreamina login` (scan with the Douyin app); `dreamina user_credit` should show your credits. The script looks in `DREAMINA_INSTALL_DIR`, `~/bin`, `~/.local/bin`, then PATH | `~/.dreamina_cli` |
-| muse | `pip install playwright && playwright install chromium`, then `python3 scripts/muse-image.py --login` and sign in to muse.ai in the window that opens; afterwards `--list-chats` should list your side chats | `~/.config/imagegen-swarm/muse-browser` |
-| lovart | See below | `~/.lovart` |
+| muse | `pip install playwright && playwright install chromium`, then `python3 scripts/muse-image.py --login` and sign in to muse.ai in the window that opens; afterwards `--list-chats` should list your side chats | `$HOME/.config/imagegen-swarm/muse-browser` |
+| lovart | See below | `$HOME/.lovart/env` and, once that directory exists, `$HOME/.lovart/state.json` |
 
 ## Jimeng binary
 
@@ -75,15 +75,18 @@ On lovart.ai open the avatar menu → "OpenClaw for Lovart" → Create API Key �
 under account settings, and the secret key is shown only once. Store it in a credentials file, never
 in chat or git:
 
-Run this only the first time you set up Lovart. It creates `~/.lovart` and the credentials file. Do
-not run it again on later generations.
+Run this only the first time you set up Lovart. It stores the two keys in the file
+`$HOME/.lovart/env` and sets that file to mode 600. The parent directory exists only so this
+file has a place to live. Do not run it again on later generations.
 
 ```bash
-mkdir -p ~/.lovart && umask 077 && cat > ~/.lovart/env <<'EOF'
+umask 077
+mkdir -p -- "$HOME/.lovart"
+cat > "$HOME/.lovart/env" <<'EOF'
 export LOVART_ACCESS_KEY="ak_your_key"
 export LOVART_SECRET_KEY="sk_your_key"
 EOF
-chmod 600 ~/.lovart/env
+chmod 600 "$HOME/.lovart/env"
 ```
 
 `scripts/lovart.mjs` reads that file as text and checks that its mode is owner-only. It keeps only
@@ -112,11 +115,14 @@ configure it. Creating this file is your consent to that spend for images in a j
 subscription engine can take. The agent must ask you before it creates this file, changes the
 budgets, or generates paid images you did not ask for.
 
-Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then write
-the config. Run the `mkdir` only the first time:
+Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then save
+the config in `$HOME/.config/imagegen-swarm/api.json`. Run the directory step only the first time.
+The budgets below cap the estimated spend (`price_per_image` times images), not the provider invoice:
 
 ```bash
-mkdir -p ~/.config/imagegen-swarm && cat > ~/.config/imagegen-swarm/api.json <<'EOF'
+umask 077
+mkdir -p -- "$HOME/.config/imagegen-swarm"
+cat > "$HOME/.config/imagegen-swarm/api.json" <<'EOF'
 {
   "provider": "openai",
   "model": "gpt-image-2",
@@ -145,11 +151,11 @@ EOF
 To keep the key in a file:
 
 ```bash
-umask 077 && printf '%s' 'your-key' > ~/.config/imagegen-swarm/api-key && chmod 600 ~/.config/imagegen-swarm/api-key
+umask 077 && printf '%s' 'your-key' > "$HOME/.config/imagegen-swarm/api-key" && chmod 600 "$HOME/.config/imagegen-swarm/api-key"
 ```
 
-Then add `"key_file": "~/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is
-`~/.config/imagegen-swarm/api-spend.jsonl`, one line per image.
+Then add `"key_file": "$HOME/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is
+the file `$HOME/.config/imagegen-swarm/api-spend.jsonl`, one line per finished image.
 
 ## Check
 

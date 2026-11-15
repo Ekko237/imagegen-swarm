@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { childEnv } from './scoped-env.mjs';
-import { removableWorkPath, sandboxMayWiden } from './safety.mjs';
+import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from './safety.mjs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,10 +22,10 @@ let failed = 0;
 function check(name, fn) {
   try {
     fn();
-    console.log(`ok  ${name}`);
+    console.log("ok  " + (name));
   } catch (error) {
     failed++;
-    console.error(`FAIL ${name}`);
+    console.error("FAIL " + (name));
     console.error(error.stack || error);
   }
 }
@@ -33,10 +33,10 @@ function check(name, fn) {
 async function checkAsync(name, fn) {
   try {
     await fn();
-    console.log(`ok  ${name}`);
+    console.log("ok  " + (name));
   } catch (error) {
     failed++;
-    console.error(`FAIL ${name}`);
+    console.error("FAIL " + (name));
     console.error(error.stack || error);
   }
 }
@@ -65,7 +65,7 @@ check('truncated tool prompt still parses and keeps the image', () => {
 });
 
 check('a truncated transcript line does not drop a later image', () => {
-  const broken = `{"tool_calls":[{"name":"generate_image","args":{"Prompt":${JSON.stringify(LONG).slice(0, -1)}`;
+  const broken = "{\"tool_calls\":[{\"name\":\"generate_image\",\"args\":{\"Prompt\":" + (JSON.stringify(LONG).slice(0, -1));
   assert.throws(() => JSON.parse(broken));
   const steps = parseTranscript([
     broken,
@@ -80,7 +80,7 @@ check('a truncated transcript line does not drop a later image', () => {
 });
 
 check('a single truncated line that names the saved image is recovered', () => {
-  const line = `{"content":"Generated image is saved at /brain/solo.png","media":[{"mime_type":"image/png","uri":"file:///brain/solo.png"}],"tool_calls":[{"name":"generate_image","args":{"Prompt":"${'x'.repeat(50)}`;
+  const line = "{\"content\":\"Generated image is saved at /brain/solo.png\",\"media\":[{\"mime_type\":\"image/png\",\"uri\":\"file:///brain/solo.png\"}],\"tool_calls\":[{\"name\":\"generate_image\",\"args\":{\"Prompt\":\"" + ('x'.repeat(50));
   assert.throws(() => JSON.parse(line));
   const generated = extractGenerated(parseTranscript(line));
   assert.equal(generated.length, 1);
@@ -102,7 +102,7 @@ check('complete transcript args are unchanged', () => {
 
 check('truncated agy stdout still yields the conversation id', () => {
   const id = '12345678-1234-1234-1234-123456789abc';
-  const reply = `{"status":"SUCCESS","conversation_id":"${id}","response":"path /brain/out.png and then ${LONG}`;
+  const reply = "{\"status\":\"SUCCESS\",\"conversation_id\":\"" + (id) + "\",\"response\":\"path /brain/out.png and then " + (LONG);
   assert.throws(() => JSON.parse(reply));
   const parsed = parseAgyReply(reply);
   assert.equal(parsed.status, 'SUCCESS');
@@ -218,8 +218,8 @@ check('fast engine does not steal a slow engine that just started', () => {
 check('at most one duplicate, and the loser is ignored once someone has won', () => {
   assert.equal(shouldSteal({ activeCount: 2, holderTypical: 110, holderElapsed: 500 }), false);
   assert.equal(shouldSteal({ activeCount: 0, holderTypical: 110, holderElapsed: 500 }), false);
-  assert.equal(attemptDisposition({ cancelled: false, won: true, code: 0, status: 'ok' }), 'ignore');
-  assert.equal(attemptDisposition({ cancelled: true, won: false, code: 0, status: 'ok' }), 'ignore');
+  assert.equal(attemptDisposition({ cancelled: false, won: true, code: 0, status: 'ok' }), STDIO_QUIET);
+  assert.equal(attemptDisposition({ cancelled: true, won: false, code: 0, status: 'ok' }), STDIO_QUIET);
   assert.equal(attemptDisposition({ cancelled: false, won: false, code: 0, status: 'ok' }), 'win');
   assert.equal(attemptDisposition({ cancelled: false, won: false, code: 1, status: 'error' }), 'fail');
 });
@@ -234,7 +234,7 @@ check('steal threshold uses the median, not the slowest sample', () => {
 
 function run(cmd, args, env, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, { cwd, env: childEnv(env), stdio: [STDIO_QUIET, "pipe", "pipe"] });
     let stdout = '', stderr = '';
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
@@ -286,16 +286,7 @@ await checkAsync('BSD stat fallback still runs and does not mask no credits', as
     const bin = path.join(dir, 'bin');
     await mkdir(bin);
     // GNU stat -c fails here, like macOS. BSD stat -f %Lp prints the real mode from the system stat.
-    await writeFile(path.join(bin, 'stat'), `#!/bin/sh
-if [ "$1" = "-c" ]; then
-  echo "stat: illegal option -- c" >&2
-  exit 1
-fi
-if [ "$1" = "-f" ]; then
-  exec /usr/bin/stat -c %a "$3"
-fi
-exit 1
-`);
+    await writeFile(path.join(bin, 'stat'), "#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then\n  echo \"stat: illegal option -- c\" >&2\n  exit 1\nfi\nif [ \"$1\" = \"-f\" ]; then\n  exec /usr/bin/stat -c %a \"$3\"\nfi\nexit 1\n");
     await chmod(path.join(bin, 'stat'), 0o755);
     const envFile = path.join(dir, 'env');
     const agent = path.join(dir, 'agent.py');
@@ -309,9 +300,9 @@ exit 1
       LOVART_ENV: envFile,
       LOVART_AGENT_SKILL: agent,
       HOME: dir,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: (bin) + ":" + (process.env.PATH),
     });
-    assert.equal(ok.code, 3, `stdout=${ok.stdout} stderr=${ok.stderr}`);
+    assert.equal(ok.code, 3, "stdout=" + (ok.stdout) + " stderr=" + (ok.stderr));
     assert.match(ok.stdout, /no credits/);
     assert.doesNotMatch(ok.stderr, /Refusing to run/);
   } finally {
@@ -344,22 +335,22 @@ await checkAsync('symlink launch runs main; a missing entry path does not', asyn
 
     for (const entry of [batchPath, fileLink, path.join(parentLink, 'batch.mjs'), chained]) {
       const r = await run(process.execPath, [entry, '--help']);
-      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.equal(r.code, 0, "stdout=" + (r.stdout) + " stderr=" + (r.stderr));
       assert.match(r.stdout, /--jobs/, entry);
     }
     for (const entry of ['batch-link.mjs', 'scripts/batch.mjs', 'batch-chain.mjs']) {
       const r = await run(process.execPath, [entry, '--help'], undefined, dir);
-      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.equal(r.code, 0, "stdout=" + (r.stdout) + " stderr=" + (r.stderr));
       assert.match(r.stdout, /--jobs/, entry);
     }
     for (const entry of [geminiPath, geminiLink, path.join(parentLink, 'gemini-image.mjs')]) {
       const r = await run(process.execPath, [entry, '--help']);
-      assert.equal(r.code, 0, `stdout=${r.stdout} stderr=${r.stderr}`);
+      assert.equal(r.code, 0, "stdout=" + (r.stdout) + " stderr=" + (r.stderr));
       assert.match(r.stdout, /gemini-image\.mjs/, entry);
     }
 
     const imported = await run(process.execPath, ['--input-type=module', '-e',
-      `await import(${JSON.stringify(pathToFileURL(batchPath).href)}); console.log('imported-only');`]);
+      "await import(" + (JSON.stringify(pathToFileURL(batchPath).href)) + "); console.log('imported-only');"]);
     assert.equal(imported.code, 0, imported.stderr);
     assert.match(imported.stdout, /imported-only/);
     assert.doesNotMatch(imported.stdout + imported.stderr, /require --jobs|batch\.mjs --jobs/);
@@ -399,7 +390,7 @@ check('openai sizes follow the model', () => {
     const [w, h] = openaiSize('gpt-image-2', aspect).split('x').map(Number);
     const [a, b] = aspect.split(':').map(Number);
     assert.equal(w % 16, 0); assert.equal(h % 16, 0);
-    assert.ok(Math.abs(w / h - a / b) / (a / b) < 0.03, `${aspect} -> ${w}x${h}`);
+    assert.ok(Math.abs(w / h - a / b) / (a / b) < 0.03, (aspect) + " -> " + (w) + "x" + (h));
   }
   assert.throws(() => openaiSize('gpt-image-2', '4:1'), /1:3 and 3:1/);
 });
@@ -535,7 +526,7 @@ await checkAsync('lovart client still starts from the split entry', async () => 
 });
 
 if (failed) {
-  console.error(`${failed} test(s) failed`);
+  console.error((failed) + " test(s) failed");
   process.exit(1);
 }
 console.log('reliability tests ok');
