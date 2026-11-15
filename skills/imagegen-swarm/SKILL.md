@@ -1,16 +1,26 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images, and Gemini from up to 3. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.2.5
+version: 1.2.6
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
+    emoji: "🖼️"
+    homepage: https://github.com/Ekko237/imagegen-swarm
     requires:
       bins:
         - node
       anyBins:
         - python3
         - python
+      config:
+        - $HOME/.lovart/env
+        - $HOME/.lovart/state.json
+        - $HOME/.config/imagegen-swarm/api.json
+        - $HOME/.config/imagegen-swarm/api-key
+        - $HOME/.config/imagegen-swarm/api-spend.jsonl
+        - $HOME/.config/imagegen-swarm/engine-off
+        - $HOME/.config/imagegen-swarm/muse-browser
     envVars:
       - name: PYTHON
         required: false
@@ -23,19 +33,19 @@ metadata:
         description: Codex home directory. Generation reads only its generated_images subdirectory, to hash older files and reject a reused image. It does not read auth, config, or session files. check.mjs only tests whether auth.json exists.
       - name: AGY_BIN
         required: false
-        description: Path to the Antigravity CLI. Defaults to ~/.local/bin/agy.
+        description: Path to the Antigravity CLI. Defaults to $HOME/.local/bin/agy.
       - name: DREAMINA_INSTALL_DIR
         required: false
         description: Directory containing the user-installed dreamina binary.
       - name: LOVART_ACCESS_KEY
         required: false
-        description: Lovart access key. Read from the environment or from ~/.lovart/env.
+        description: Lovart access key. Read from the environment or from the file $HOME/.lovart/env. That file is read as text and is not executed.
       - name: LOVART_SECRET_KEY
         required: false
-        description: Lovart secret key. Read from the environment or from ~/.lovart/env.
+        description: Lovart secret key. Read from the environment or from the file $HOME/.lovart/env. That file is read as text and is not executed.
       - name: LOVART_ENV
         required: false
-        description: Credentials file for Lovart. Defaults to ~/.lovart/env and must be owner-only.
+        description: Lovart credentials file. Defaults to $HOME/.lovart/env, must be owner-only, and is read as text.
       - name: LOVART_BASE_URL
         required: false
         description: "Lovart API base URL. Defaults to https://lgw.lovart.ai."
@@ -59,13 +69,13 @@ metadata:
         description: Override path for the pay-per-image spend ledger.
       - name: IMAGE_GEN_ENGINE_OFF
         required: false
-        description: Directory of per-engine off switches. Defaults to ~/.config/imagegen-swarm/engine-off.
+        description: Directory of empty per-engine marker files. Defaults to $HOME/.config/imagegen-swarm/engine-off. One empty file named for the engine pauses that engine.
       - name: IMAGE_GEN_MEMORY_GB
         required: false
         description: RAM budget in GB used to size engine lanes.
       - name: IMAGE_GEN_MUSE_PROFILE
         required: false
-        description: Muse browser profile directory. Defaults to ~/.config/imagegen-swarm/muse-browser.
+        description: Muse browser profile directory. Defaults to $HOME/.config/imagegen-swarm/muse-browser. Created only by muse-image.py --login.
       - name: HTTPS_PROXY
         required: false
         description: Optional proxy for the Muse browser only.
@@ -101,8 +111,8 @@ pay-per-image API line you configured keeps the queue moving.
 Privacy: a prompt and any reference images are sent to the external service for each engine that
 actually runs that job (OpenAI, Dreamina, xAI, Google, Muse, Lovart, or the API host in the
 pay-per-image setup). Do not send sensitive, confidential, or personal content unless the user has
-agreed that this provider may see it. Do not add a provider the user did not name without asking
-first.
+agreed that this provider may see it. Add another provider only after the user names
+that provider and agrees.
 
 An example job list is [references/jobs.example.json](references/jobs.example.json). Copy it and
 edit the prompts. Only `id` and `prompt` are required.
@@ -144,19 +154,26 @@ it stopped.
   that contain this run's marker (`IMAGE_GEN_RUN_ID`). Directories left by another run are left in
   place.
 - Pay-per-image last resort `api`: on only when the user has completed the pay-per-image setup in
-  [SETUP.md](SETUP.md) (override the config path with `IMAGE_GEN_API_CONFIG`). That file holds
-  `provider`, `model`, `price_per_image` (estimated USD), `budget_per_batch`, `budget_per_month`,
-  and `lanes` (default 4). The key is not in the file. Writing that setup is the user's consent to
-  spend at most those budgets, at `price_per_image`, on images in this job list that no subscription
-  engine can take. It never tail-steals and never spends money just to go faster. A job with
-  `"engine": "api"` goes straight to it. Before each paid image it checks (images done + images in
-  flight) × price against both budgets; if one more image would go over, the line shuts down and the
-  remaining images fail. Every finished paid image appends one JSON line to the spend ledger named
-  in SETUP.md. The summary line has a `paid` field with this batch's images, cost, and the month
-  total. Ask the user before any paid generation they did not ask for: do not create or edit the
-  pay-per-image setup, do not raise either budget, do not add `api` to `--engines`, and do not add
-  paid jobs beyond the list they gave you. Tell them the estimated cost (`price_per_image` times the
-  images that would use the paid line) and wait for a yes.
+  [SETUP.md](SETUP.md). The config file is `$HOME/.config/imagegen-swarm/api.json` unless
+  `IMAGE_GEN_API_CONFIG` points at another file. It holds `provider`, `model`, `price_per_image`
+  (an estimated USD amount, not the provider invoice), `budget_per_batch`, `budget_per_month`, and
+  `lanes` (default 4). The key is not in the file. The user placing that file is their consent to
+  spend at most those estimated budgets, at `price_per_image`, on images in this job list that no
+  subscription engine can take. It never tail-steals and never spends money just to go faster. A
+  job with `"engine": "api"` goes straight to it. Before a paid image is started, this process
+  reserves it. (Images already reserved in this batch, including ones still in flight) times
+  `price_per_image` is compared with `budget_per_batch`. The ledger total read when this process
+  started, plus that same reservation, is compared with `budget_per_month`. If either comparison
+  would pass the cap, the line stops and does not start that image. The cap is this estimate. A
+  provider can bill a different amount for an image that already started. A second batch process
+  does not see a reservation until this process appends the finished image to the ledger. Every
+  finished paid image appends one JSON line to `$HOME/.config/imagegen-swarm/api-spend.jsonl`
+  (`IMAGE_GEN_API_LEDGER` overrides that path). The summary line has a `paid` field with this
+  batch's images, estimated cost, and the month total from the ledger. Ask the user and wait for a
+  yes before any paid generation they did not ask for. Leave the pay-per-image file and both
+  budgets as the user set them, leave `api` out of `--engines` unless they asked for it, and do not
+  add paid jobs beyond the list they gave you. Tell them the estimated cost (`price_per_image`
+  times the images that would use the paid line) first.
 - When the user names an engine, run only that one with `--engines`.
 - To pause an engine, ask the user to create an empty marker file named for that engine inside the
   `engine-off` directory from SETUP.md (or set `IMAGE_GEN_ENGINE_OFF` to a folder they already
@@ -171,12 +188,13 @@ The agent does not create these directories. The user creates them by running th
 
 | Path | Created | What is stored | Why |
 |---|---|---|---|
-| Pay-per-image config from SETUP.md | User setup | Provider, model, price, budgets. No API key | Turns on the paid line and caps spend |
-| Spend ledger from SETUP.md | User setup creates the directory; a finished paid image appends one line | Time, provider, model, price | Stop before the monthly budget |
-| `engine-off` marker | User, to pause one engine | Empty file named for the engine | Skip that engine until the user deletes it |
-| Muse `muse-browser` profile | `scripts/muse-image.py --login` only | Browser profile and Muse session | Stay signed in |
-| Lovart credentials file from SETUP.md | User setup, mode 600 | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL` | Sign Lovart requests. Other lines in the file are ignored |
-| Lovart `state.json` next to those credentials | Not created by this skill. Saved only if the directory already exists | Project and thread ids | Resume a Lovart project. Missing directory skips the save |
+| `$HOME/.config/imagegen-swarm/api.json` | User setup | Provider, model, estimated price, budgets. No API key | Turns on the paid line and caps the estimate |
+| `$HOME/.config/imagegen-swarm/api-key` | User setup, only if they choose a key file. Mode 600 | The API key | Read at request time. The config file never holds it |
+| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | The directory is user setup. A finished paid image appends one line | Time, provider, model, estimated price | Compare this batch's reservation with the monthly cap |
+| `$HOME/.config/imagegen-swarm/engine-off/<engine>` | User, to pause one engine | Empty file named for that engine | Skip that engine until the user deletes the file |
+| `$HOME/.config/imagegen-swarm/muse-browser` | `scripts/muse-image.py --login` only | Browser profile and Muse session | Stay signed in. Generation does not create this directory |
+| `$HOME/.lovart/env` | User setup, mode 600 | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL` | Read as text to sign Lovart requests. Other lines in the file are ignored. The file is not executed |
+| `$HOME/.lovart/state.json` | Not created by setup. Updated only when `$HOME/.lovart` already exists | Project and thread ids | Resume a Lovart project. A missing directory skips the save |
 | `CODEX_HOME/generated_images` | Codex itself, not this skill | Older generated images | Hash them and reject a reused file. Nothing else under `CODEX_HOME` is read |
 | `CODEX_HOME/auth.json` | `codex login` | Login state. `scripts/check.mjs` only tests that the file exists | Report whether Codex is logged in |
 
@@ -239,25 +257,34 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   when delivering. A long prompt clipped in the session log does not discard an image that was
   generated; the script reads the full session transcript when Antigravity wrote one beside the log.
 - **muse**: Muse has no API, so the script drives its own headless browser in one pass: open a side
-  chat, send the task, wait, download from the cloud computer's file library, delete the side chat.
-  The browser profile is the directory named by `IMAGE_GEN_MUSE_PROFILE`, or the `muse-browser`
-  directory from SETUP.md. That directory is created only when the user runs `scripts/muse-image.py
-  --login`. Generation and `--list-chats` do not create it. Renaming the side chat is best-effort:
-  if the current side-chat row cannot be identified, or the rename dialog fails or times out, the
-  script logs one warning, closes any dialog, and keeps generating. It still refuses to rename or
-  delete a row it cannot prove is this side chat. If Muse asks for approval, the script clicks
-  "Allow once" only when that single request is a write of this run's exact output file, or a create
-  of that file's directory, under the Muse workspace path `/home/hatch/workspace/imagegen-swarm`.
-  Any other request stops the run and returns the request text; ask the user before approving it.
-  One process at a time can use the browser. An existing profile in the previous `image-gen` folder
-  is still used until the user moves it.
+  chat, send the task, wait, download from the cloud computer's file library, then delete that side
+  chat. The browser profile is the directory named by `IMAGE_GEN_MUSE_PROFILE`, or
+  `$HOME/.config/imagegen-swarm/muse-browser`. That directory is created only when the user runs
+  `scripts/muse-image.py --login`. Generation and `--list-chats` do not create it. Renaming the
+  side chat is best-effort: if the current side-chat row cannot be identified, or the rename dialog
+  fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
+  not rename a row it cannot prove is this side chat. On success it deletes only the side chat it
+  opened. On failure before that chat's id is known, it deletes side chats that were not in the
+  list taken just before send, so a side chat created in that window can be removed. If Muse asks
+  for approval, the script clicks "Allow once" only when every absolute path it can read in that
+  one request is exactly this run's output file or that file's parent directory, under
+  `/home/hatch/workspace/imagegen-swarm`, and the text also has a save or create word and none of a
+  small list of shell and network words. The check does not parse shell. Any other request,
+  including one whose paths the check cannot see, stops the run and returns the request text. Ask
+  the user before approving that request. One process at a time can use the browser. An existing
+  profile in the previous `image-gen` folder is still used until the user moves it.
 - **lovart**: `scripts/lovart.mjs` runs `scripts/lovart_agent.py` (the command entry). HTTP calls
   are in `scripts/lovart_client.py` and the local project list is in `scripts/lovart_state.py`,
   split from the readable v1.1.1 client so each file stays small enough to review. It opens a fresh
   thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not
   prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`.
   If the client reports a pending confirmation, stop and ask the user; do not confirm a charge
-  yourself. See [references/lovart.md](references/lovart.md).
+  yourself. During an image call, if the remote project's current name is empty, `Untitled`, or a
+  short prefix of the project id, the client renames that project to the first 30 characters of
+  the prompt. A project that already has another name is left unchanged. `project-add` and
+  `project-rename` update `$HOME/.lovart/state.json` and, when access keys are present, also send
+  a rename to Lovart. Do not run those two commands unless the user asked to add or rename that
+  project. Image generation does not pass them. See [references/lovart.md](references/lovart.md).
 - **api**: `provider` is `openai` or `gemini`. openai calls `/v1/images/generations`
   (`/v1/images/edits` with `image[]` when there are references); point `base_url` at any
   OpenAI-compatible gateway to use it instead. `gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5`

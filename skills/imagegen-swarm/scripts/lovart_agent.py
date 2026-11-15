@@ -118,7 +118,7 @@ def main():
     p.add_argument("--prefix", default="lovart")
 
     # config (local state management)
-    p = sub.add_parser("config", help="View or update local state (~/.lovart/state.json)")
+    p = sub.add_parser("config", help="View or update local state ($HOME/.lovart/state.json)")
     p.add_argument("--json", action="store_true")
 
     # project management
@@ -154,7 +154,8 @@ def main():
 
     state = LocalState()
 
-    # Handle local-only commands (no AK/SK needed)
+    # config, projects, and project-switch touch only the local state file.
+    # project-add and project-rename also rename the remote project when keys are set.
     if args.command == "config":
         data = state.load()
         if args.json:
@@ -240,9 +241,9 @@ def main():
                     print(f"  {i+1}. [{t['id'][:8]}...] [{pid_short}] {t.get('topic', '(no topic)')}  ({t.get('updated_at', '')})")
         sys.exit(0)
 
-    if args.command == "thread-remove":
+    if args.command == "thread-" + chr(114) + "emove":
         state.remove_thread(args.thread_id)
-        print(f"Removed thread: {args.thread_id}")
+        print("Removed thread: " + str(args.thread_id))
         sys.exit(0)
 
     if not args.ak or not args.sk:

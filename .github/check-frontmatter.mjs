@@ -95,6 +95,7 @@ for (const rel of [
   "evals/run.mjs",
   "evals/evals.json",
   "SETUP.md",
+  "skill-card.md",
 ]) {
   if (!existsSync(path.join(skillDir, rel))) {
     console.error(`skill is missing ${rel}`);

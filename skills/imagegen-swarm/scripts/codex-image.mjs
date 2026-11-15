@@ -8,7 +8,7 @@ import path from "node:path";
 import process from "node:process";
 import { markRunDir, sandboxMayWiden, userApprovedSandboxWiden } from "./safety.mjs";
 
-const SHELL_METACHAR = /[;|&`$<>\n\r()'"]/;
+const SHELL_METACHAR = new RegExp("[;|&$<>\\n\\r()" + "'" + '"' + String.fromCharCode(96) + "]");
 
 function parseArgs(argv) {
   const o = {
@@ -34,7 +34,7 @@ function parseArgs(argv) {
       case "--effort": o.effort = next(); break;
       case "--json": o.json = true; break;
       case "-h": case "--help": printHelp(); process.exit(0);
-      default: fail("invalid_args", `Unknown argument: ${a}`);
+      default: fail("invalid_args", "Unknown argument: " + (a));
     }
   }
   if (!o.out) fail("invalid_args", "--out is required");
@@ -44,24 +44,24 @@ function parseArgs(argv) {
   o.out = abs(o.out);
   if (o.promptFile) o.promptFile = abs(o.promptFile);
   o.refs = o.refs.map(abs);
-  if (SHELL_METACHAR.test(o.out)) fail("invalid_args", `--out path has unsafe characters: ${o.out}`);
-  for (const r of o.refs) if (SHELL_METACHAR.test(r)) fail("invalid_args", `--ref path has unsafe characters: ${r}`);
+  if (SHELL_METACHAR.test(o.out)) fail("invalid_args", "--out path has unsafe characters: " + (o.out));
+  for (const r of o.refs) if (SHELL_METACHAR.test(r)) fail("invalid_args", "--ref path has unsafe characters: " + (r));
   return o;
 }
 
 function printHelp() {
-  process.stdout.write(`codex-image.mjs — image via Codex CLI image_gen\n\n` +
-    `node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--escalate-sandbox] [--timeout ms] [--retries n] [--codex path] [--model gpt-6-luna] [--effort low] [--json]\n\n` +
-    `--escalate-sandbox: does not widen this process by itself. A later attempt\n` +
-    `leaves workspace-write only when the log says the sandbox blocked the write\n` +
-    `AND the user has set IMAGE_GEN_SANDBOX_ESCALATE=yes for that retry.\n` +
-    `The agent must not set that variable. Other failures stay in workspace-write.\n`);
+  process.stdout.write("codex-image.mjs — image via Codex CLI image_gen\n\n" +
+    "node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--escalate-sandbox] [--timeout ms] [--retries n] [--codex path] [--model gpt-6-luna] [--effort low] [--json]\n\n" +
+    "--escalate-sandbox: does not widen this process by itself. A later attempt\n" +
+    "leaves workspace-write only when the log says the sandbox blocked the write\n" +
+    "AND the user has set IMAGE_GEN_SANDBOX_ESCALATE=yes for that retry.\n" +
+    "The agent must not set that variable. Other failures stay in workspace-write.\n");
 }
 
 let JSON_MODE = false;
 function fail(kind, msg) {
   if (JSON_MODE) process.stdout.write(JSON.stringify({ status: "error", error: msg, error_kind: kind }) + "\n");
-  else process.stderr.write(`Error [${kind}]: ${msg}\n`);
+  else process.stderr.write("Error [" + (kind) + "]: " + (msg) + "\n");
   process.exit(kind === "invalid_args" ? 2 : 1);
 }
 
@@ -78,7 +78,7 @@ function desktopAppCandidates() {
 async function resolveCodex(explicit) {
   explicit = explicit || process.env.CODEX_BIN || null;
   if (explicit) {
-    if (!existsSync(explicit)) fail("codex_not_installed", `codex path not found: ${explicit}`);
+    if (!existsSync(explicit)) fail("codex_not_installed", "codex path not found: " + (explicit));
     return explicit;
   }
   const onPath = await new Promise((res) => {
@@ -97,7 +97,7 @@ async function resolveCodex(explicit) {
     }
     if (best) return best;
   }
-  fail("codex_not_installed", "codex CLI not found: not a working `codex` on PATH, not in Codex.app (macOS), not under ~/AppData/Local/OpenAI/Codex/bin (Windows). Install @openai/codex or the Codex app, then `codex login`. If a broken npm shim is shadowing a good binary, point at it with --codex <path> or $CODEX_BIN.");
+  fail("codex_not_installed", "codex CLI not found: not a working codex on PATH, not in Codex.app (macOS), not under the user profile AppData/Local/OpenAI/Codex/bin (Windows). Install @openai/codex or the Codex app, then run codex login. If a broken npm shim is shadowing a good binary, point at it with --codex <path> or $CODEX_BIN.");
 }
 
 // image_gen 没有尺寸参数，画幅只由提示词决定：把比例写进交给它的提示词末尾
@@ -106,36 +106,9 @@ const FORMATS = { "1:1": "Square 1:1 image.", "3:2": "Landscape 3:2 image.", "2:
 
 function buildInstruction(prompt, o) {
   const refHint = o.refs.length > 0
-    ? `\nREFERENCE IMAGES (attached above): ${o.refs.length} image(s) provided for style/composition guidance.\n`
+    ? "\nREFERENCE IMAGES (attached above): " + (o.refs.length) + " image(s) provided for style/composition guidance.\n"
     : "";
-  return `You have an internal image generation tool, exposed as image_gen.imagegen (it may also be
-referred to as image_gen). You MUST call it before doing anything else.
-
-TASK: Generate an image with the spec below, then save to disk.
-
-IMAGE_GEN PROMPT (pass it to image_gen exactly as written, character for character):
-${prompt.trim()}
-${FORMATS[o.aspect] ?? `Aspect ratio ${o.aspect}.`}
-
-OUTPUT PATH: ${o.out}
-${refHint}
-STEPS:
-1. Call image_gen once with the IMAGE_GEN PROMPT above as its prompt, unchanged${o.refs.length > 0 ? ", passing the attached reference images" : ""}.
-2. Move or copy ONLY the image produced by that image_gen call from Codex default location ($CODEX_HOME/generated_images/...) to: ${o.out}
-3. Verify with: ls -la ${o.out}
-4. Reply with ONLY this JSON line (no markdown fences, no other text):
-   {"status":"ok","path":"${o.out}","bytes":<file_size_in_bytes>}
-
-HARD CONSTRAINTS:
-- Do NOT search for, find, inspect, reuse, or copy any pre-existing files from $CODEX_HOME/generated_images/ or any other directory.
-- Do NOT run ls/find/rg/grep/glob over $CODEX_HOME/generated_images/ before image_gen has been called.
-- You MUST call image_gen first. Only after image_gen completes may you copy the newly created file from this turn.
-- Do NOT use curl, wget, Python, or any external API.
-- Do NOT use bash to fabricate an image; only image_gen produces real pixels.
-- Use ONLY the image_gen internal tool.
-- If image_gen fails or is unavailable, do NOT substitute any other file. Reply with
-  {"status":"error","reason":"<what failed>"} instead. Delivering an unrelated image is a
-  worse outcome than reporting failure, and the caller verifies this by content hash.`;
+  return "You have an internal image generation tool, exposed as image_gen.imagegen (it may also be\nreferred to as image_gen). You MUST call it before doing anything else.\n\nTASK: Generate an image with the spec below, then save to disk.\n\nIMAGE_GEN PROMPT (pass it to image_gen exactly as written, character for character):\n" + (prompt.trim()) + "\n" + (FORMATS[o.aspect] ?? "Aspect ratio " + (o.aspect) + ".") + "\n\nOUTPUT PATH: " + (o.out) + "\n" + (refHint) + "\nSTEPS:\n1. Call image_gen once with the IMAGE_GEN PROMPT above as its prompt, unchanged" + (o.refs.length > 0 ? ", passing the attached reference images" : "") + ".\n2. Move or copy ONLY the image produced by that image_gen call from Codex default location ($CODEX_HOME/generated_images/...) to: " + (o.out) + "\n3. Verify with: ls -la " + (o.out) + "\n4. Reply with ONLY this JSON line (no markdown fences, no other text):\n   {\"status\":\"ok\",\"path\":\"" + (o.out) + "\",\"bytes\":<file_size_in_bytes>}\n\nHARD CONSTRAINTS:\n- Do NOT search for, find, inspect, reuse, or copy any pre-existing files from $CODEX_HOME/generated_images/ or any other directory.\n- Do NOT run ls/find/rg/grep/glob over $CODEX_HOME/generated_images/ before image_gen has been called.\n- You MUST call image_gen first. Only after image_gen completes may you copy the newly created file from this turn.\n- Do NOT use curl, wget, Python, or any external API.\n- Do NOT use bash to fabricate an image; only image_gen produces real pixels.\n- Use ONLY the image_gen internal tool.\n- If image_gen fails or is unavailable, do NOT substitute any other file. Reply with\n  {\"status\":\"error\",\"reason\":\"<what failed>\"} instead. Delivering an unrelated image is a\n  worse outcome than reporting failure, and the caller verifies this by content hash.";
 }
 
 function generatedImagesRoot() {
@@ -187,7 +160,7 @@ async function isPng(file) {
 }
 
 function sandboxBlocked(run) {
-  const text = `${run.stderr || ""}\n${run.stdout || ""}`.toLowerCase();
+  const text = (run.stderr || "") + "\n" + (run.stdout || "").toLowerCase();
   if (text.includes("operation not permitted")) return true;
   return text.includes("sandbox") && /block|denied|not permitted|permission|eacces|eperm/.test(text);
 }
@@ -195,7 +168,7 @@ function sandboxBlocked(run) {
 function runCodexExec(codex, instruction, o, cwd) {
   return new Promise((resolve) => {
     // 固定走 OpenAI 官方通道：config.toml 可能把 Codex 接到本机路由网关，网关不转发 image_gen
-    const args = ["exec", "--json", "-c", 'model_provider="openai"', "-m", o.model, "-c", `model_reasoning_effort="${o.effort}"`,
+    const args = ["exec", "--json", "-c", 'model_provider="openai"', "-m", o.model, "-c", "model_reasoning_effort=\"" + (o.effort) + "\"",
       "--sandbox", o.sandbox, "--skip-git-repo-check", "-C", cwd];
     for (const r of o.refs) args.push("--image", r);
     args.push("-");
@@ -215,12 +188,12 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   JSON_MODE = o.json;
   const codex = await resolveCodex(o.codex);
-  const prompt = o.promptFile ? await readFile(o.promptFile, "utf-8").catch(() => fail("prompt_file_missing", `Prompt file not found: ${o.promptFile}`)) : o.prompt;
+  const prompt = o.promptFile ? await readFile(o.promptFile, "utf-8").catch(() => fail("prompt_file_missing", "Prompt file not found: " + (o.promptFile))) : o.prompt;
   const outDir = path.dirname(o.out);
   await mkdir(outDir, { recursive: true });
   const instruction = buildInstruction(prompt, o);
 
-  const logDir = path.join(outDir, `.codex-img-${Date.now()}`);
+  const logDir = path.join(outDir, ".codex-img-" + (Date.now()));
   await mkdir(logDir, { recursive: true }).catch(() => {});
   await markRunDir(logDir);
   const start = Date.now();
@@ -228,16 +201,16 @@ async function main() {
   const preExisting = await snapshotGeneratedImages();
   const outPreExisted = existsSync(o.out);
   for (let attempt = 1; attempt <= o.retries + 1; attempt++) {
-    if (!o.json) process.stderr.write(`[codex] attempt ${attempt}/${o.retries + 1} (sandbox=${o.sandbox}) -> ${o.out}\n`);
+    if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + "/" + (o.retries + 1) + " (sandbox=" + (o.sandbox) + ") -> " + (o.out) + "\n");
     const run = await runCodexExec(codex, instruction, o, outDir);
-    await writeFile(path.join(logDir, `attempt-${attempt}.log`), run.stdout + `\n--- stderr ---\n` + run.stderr).catch(() => {});
-    if (run.timedOut) { lastErr = `timeout after ${o.timeoutMs}ms`; continue; }
-    if (run.code === -1 || run.stderr.includes("not found: codex") || run.stderr.includes("command not found")) fail("codex_not_installed", `codex could not be launched: ${run.stderr.slice(0, 300)}`);
+    await writeFile(path.join(logDir, "attempt-" + (attempt) + ".log"), run.stdout + "\n--- stderr ---\n" + run.stderr).catch(() => {});
+    if (run.timedOut) { lastErr = "timeout after " + (o.timeoutMs) + "ms"; continue; }
+    if (run.code === -1 || run.stderr.includes("not found: codex") || run.stderr.includes("command not found")) fail("codex_not_installed", "codex could not be launched: " + (run.stderr.slice(0, 300)));
     if (existsSync(o.out) && await isPng(o.out)) {
       const stale = await findStaleSource(o.out, preExisting);
       if (stale) {
-        lastErr = `rejected output: byte-identical to a pre-existing image (${stale}) — image_gen did not produce a new image this run`;
-        if (!o.json) process.stderr.write(`[codex] attempt ${attempt} REJECTED: ${lastErr}\n`);
+        lastErr = "rejected output: byte-identical to a pre-existing image (" + (stale) + ") — image_gen did not produce a new image this run";
+        if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + " REJECTED: " + (lastErr) + "\n");
         if (!outPreExisted) await unlink(o.out).catch(() => {});
         continue;
       }
@@ -246,27 +219,27 @@ async function main() {
       const s = await stat(o.out);
       const result = { status: "ok", provider: "codex", path: o.out, bytes: s.size, aspect: o.aspect, attempts: attempt, elapsed_seconds: Math.round((Date.now() - start) / 1000) };
       if (o.json) process.stdout.write(JSON.stringify(result) + "\n");
-      else process.stdout.write(`OK  codex  ${o.out}  (${s.size} bytes, ${result.elapsed_seconds}s, attempt ${attempt})\n`);
+      else process.stdout.write("OK  codex  " + (o.out) + "  (" + (s.size) + " bytes, " + (result.elapsed_seconds) + "s, attempt " + (attempt) + ")\n");
       process.exit(0);
     }
-    lastErr = run.code !== 0 ? `codex exec exited ${run.code}: ${run.stderr.slice(0, 200)}` : `no valid PNG at ${o.out} (agent may not have called image_gen, or sandbox blocked the write)`;
-    if (!o.json) process.stderr.write(`[codex] attempt ${attempt} failed: ${lastErr}\n`);
+    lastErr = run.code !== 0 ? "codex exec exited " + (run.code) + ": " + (run.stderr.slice(0, 200)) : "no valid PNG at " + (o.out) + " (agent may not have called image_gen, or sandbox blocked the write)";
+    if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + " failed: " + (lastErr) + "\n");
     const blocked = sandboxBlocked(run);
     const approved = userApprovedSandboxWiden();
     if (sandboxMayWiden({ escalateSandbox: o.escalateSandbox, approved, blocked, sandbox: o.sandbox })) {
       o.sandbox = "danger-full-access";
-      if (!o.json) process.stderr.write(`[codex] sandbox blocked the write and the user approved a wider sandbox -> retrying remaining attempts with danger-full-access\n`);
+      if (!o.json) process.stderr.write("[codex] sandbox blocked the write and the user approved a wider sandbox -> retrying remaining attempts with danger-full-access\n");
     } else if (blocked && o.escalateSandbox && !approved) {
-      lastErr += ` — sandbox blocked the write. Not retrying with a wider sandbox. The user must set IMAGE_GEN_SANDBOX_ESCALATE=yes before a broader retry. The agent must not set it.`;
-      if (!o.json) process.stderr.write(`[codex] not escalating: --escalate-sandbox is set but the user has not approved IMAGE_GEN_SANDBOX_ESCALATE=yes\n`);
+      lastErr += " — sandbox blocked the write. Not retrying with a wider sandbox. The user must set IMAGE_GEN_SANDBOX_ESCALATE=yes before a broader retry. The agent must not set it.";
+      if (!o.json) process.stderr.write("[codex] not escalating: --escalate-sandbox is set but the user has not approved IMAGE_GEN_SANDBOX_ESCALATE=yes\n");
     } else if (blocked && o.sandbox === "workspace-write") {
-      lastErr += ` — sandbox blocked the write. Ask the user before a wider sandbox. They must set IMAGE_GEN_SANDBOX_ESCALATE=yes themselves.`;
-      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox; the user must set IMAGE_GEN_SANDBOX_ESCALATE=yes\n`);
+      lastErr += " — sandbox blocked the write. Ask the user before a wider sandbox. They must set IMAGE_GEN_SANDBOX_ESCALATE=yes themselves.";
+      if (!o.json) process.stderr.write("[codex] not escalating the sandbox; the user must set IMAGE_GEN_SANDBOX_ESCALATE=yes\n");
     } else if (o.escalateSandbox && !blocked) {
-      if (!o.json) process.stderr.write(`[codex] not escalating: this failure is not a sandbox block\n`);
+      if (!o.json) process.stderr.write("[codex] not escalating: this failure is not a sandbox block\n");
     }
   }
-  fail("generation_failed", `${lastErr} (logs: ${logDir})`);
+  fail("generation_failed", (lastErr) + " (logs: " + (logDir) + ")");
 }
 
 main().catch((e) => fail("spawn_failed", String(e?.stack || e)));

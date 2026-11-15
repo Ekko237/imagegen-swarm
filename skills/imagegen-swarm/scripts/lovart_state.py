@@ -1,7 +1,7 @@
 """Lovart local project and thread list.
 
-The directory is created only during setup. If it is missing, state is not
-saved and this module does not create it.
+The directory exists only after setup. If it is missing, state is not
+saved and this module leaves the directory absent.
 """
 import json
 import time

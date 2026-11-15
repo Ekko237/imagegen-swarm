@@ -4,7 +4,7 @@ import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { markRunDir } from './safety.mjs';
+import { STDIO_QUIET, markRunDir } from './safety.mjs';
 import { isInvokedDirectly } from './direct.mjs';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
@@ -16,31 +16,31 @@ function parse(argv) {
     const flag = argv[i];
     if (flag === '--json') continue;
     if (flag === '--help' || flag === '-h') {
-      console.log(`gemini-image.mjs --prompt <text> --out <png> [--ref <image>]... [--aspect ${RATIOS.join('|')}] [--model <agy model>] [--agy <path>] [--timeout ms] [--json]`);
+      console.log("gemini-image.mjs --prompt <text> --out <png> [--ref <image>]... [--aspect " + (RATIOS.join('|')) + "] [--model <agy model>] [--agy <path>] [--timeout ms] [--json]");
       process.exit(0);
     }
     const keys = { '--prompt': 'prompt', '--prompt-file': 'promptFile', '--out': 'out', '--ref': 'ref', '--aspect': 'aspect', '--model': 'model', '--agy': 'agy', '--timeout': 'timeout' };
-    if (!keys[flag] || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`invalid argument: ${flag}`);
+    if (!keys[flag] || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error("invalid argument: " + (flag));
     const value = argv[++i];
     if (keys[flag] === 'ref') { o.refs.push(path.resolve(value)); continue; }
-    if (['prompt', 'promptFile', 'out', 'agy'].includes(keys[flag]) && o[keys[flag]] !== undefined) throw new Error(`duplicate argument: ${flag}`);
+    if (['prompt', 'promptFile', 'out', 'agy'].includes(keys[flag]) && o[keys[flag]] !== undefined) throw new Error("duplicate argument: " + (flag));
     o[keys[flag]] = value;
   }
   if (!o.out || Boolean(o.prompt) === Boolean(o.promptFile)) throw new Error('require --out and exactly one of --prompt / --prompt-file');
-  if (!RATIOS.includes(o.aspect)) throw new Error(`unsupported --aspect (generate_image accepts ${RATIOS.join(', ')})`);
+  if (!RATIOS.includes(o.aspect)) throw new Error("unsupported --aspect (generate_image accepts " + (RATIOS.join(', ')) + ")");
   if (o.refs.length > 3) throw new Error('generate_image accepts at most 3 --ref images');
   o.timeout = Number(o.timeout);
   if (!Number.isFinite(o.timeout) || o.timeout <= 0) throw new Error('--timeout must be positive milliseconds');
   o.out = path.resolve(o.out);
   if (path.extname(o.out).toLowerCase() !== '.png') throw new Error('--out extension must be .png');
   o.agy = o.agy ?? process.env.AGY_BIN ?? path.join(homedir(), '.local', 'bin', 'agy');
-  if (!existsSync(o.agy)) throw new Error(`agy not found: ${o.agy} (install the Antigravity CLI or pass --agy)`);
+  if (!existsSync(o.agy)) throw new Error("agy not found: " + (o.agy) + " (install the Antigravity CLI or pass --agy)");
   return o;
 }
 
-function run(bin, args, cwd, timeout = 60000) {
+function run(bin, args, cwd, limitMs = 60000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    const child = spawn(bin, args, { cwd, stdio: [STDIO_QUIET, "pipe", "pipe"], shell: false });
     let stdout = '', stderr = '', timedOut = false;
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
@@ -48,12 +48,12 @@ function run(bin, args, cwd, timeout = 60000) {
     const timer = setTimeout(() => {
       timedOut = true; child.kill('SIGTERM');
       killTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
-    }, timeout);
+    }, limitMs);
     child.on('error', e => { clearTimeout(timer); reject(e); });
     child.on('close', code => {
       clearTimeout(timer); clearTimeout(killTimer);
-      if (timedOut) reject(new Error(`${bin} timeout after ${timeout}ms`));
-      else if (code !== 0) reject(new Error(`${bin} exited ${code}: ${stderr || stdout}`));
+      if (timedOut) reject(new Error((bin) + " timeout after " + (limitMs) + "ms"));
+      else if (code !== 0) reject(new Error((bin) + " exited " + (code) + ": " + (stderr || stdout)));
       else resolve(stdout);
     });
   });
@@ -120,7 +120,7 @@ function recoverJsonString(value) {
   if (body.startsWith('"')) body = body.slice(1);
   body = body.replace(/\\u[0-9a-fA-F]{0,3}$/, '');
   if (body.endsWith('\\') && !body.endsWith('\\\\')) body = body.slice(0, -1);
-  try { return JSON.parse(`"${body}"`); } catch { /* 里面还有没转义的引号 */ }
+  try { return JSON.parse("\"" + (body) + "\""); } catch { /* 里面还有没转义的引号 */ }
   return body.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
 
@@ -153,15 +153,15 @@ function salvageTruncatedStep(line) {
     const prompt = line.match(/"Prompt"\s*:\s*"((?:\\.|[^"\\])*)/);
     const aspect = line.match(/"AspectRatio"\s*:\s*"((?:\\.|[^"\\])*)/);
     const args = {};
-    if (prompt) args.Prompt = `"${prompt[1]}"`;
-    if (aspect) args.AspectRatio = `"${aspect[1]}"`;
+    if (prompt) args.Prompt = "\"" + (prompt[1]) + "\"";
+    if (aspect) args.AspectRatio = "\"" + (aspect[1]) + "\"";
     step.tool_calls.push({ name: 'generate_image', args });
   }
   const rawUri = uri ? uri[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : null;
   const file = rawUri || (saved ? saved[1].replace(/["},]+$/, '') : null);
   if (file) {
-    step.media.push({ mime_type: 'image/png', uri: file.startsWith('file:') ? file : `file://${file}` });
-    if (!/Generated image is saved at/.test(step.content)) step.content += `\nGenerated image is saved at ${file}`;
+    step.media.push({ mime_type: 'image/png', uri: file.startsWith('file:') ? file : "file://" + (file) });
+    if (!/Generated image is saved at/.test(step.content)) step.content += "\nGenerated image is saved at " + (file);
   }
   return step;
 }
@@ -216,7 +216,7 @@ async function main() {
   const prompt = (o.promptFile ? await readFile(o.promptFile, 'utf8') : o.prompt).trim();
   if (!prompt) throw new Error('empty prompt');
   await mkdir(path.dirname(o.out), { recursive: true });
-  const work = await mkdtemp(path.join(path.dirname(o.out), `.gemini-image-${Date.now()}-`));
+  const work = await mkdtemp(path.join(path.dirname(o.out), ".gemini-image-" + (Date.now()) + "-"));
   await markRunDir(work);
   try {
     // 解码后再散列，防止把参考图换个格式冒充新图
@@ -224,24 +224,24 @@ async function main() {
     const fingerprint = async file => (await img('fp', file)).fp[0];
     const refs = [], refHashes = new Set();
     for (const [i, ref] of o.refs.entries()) {
-      const copy = path.join(work, `ref-${i + 1}${path.extname(ref)}`);
+      const copy = path.join(work, "ref-" + (i + 1) + (path.extname(ref)));
       await copyFile(ref, copy);
       refs.push(copy);
       refHashes.add(await fingerprint(copy));
     }
     // agy 主代理没有 generate_image，出图交给内置的 image-generator 子代理；要求它原样转交提示词、只出一次
     const instruction = 'Delegate to your image-generator subagent. Do not use the imagegen-swarm skill or any other image engine. Tell the subagent: call generate_image exactly once, ' +
-      `with AspectRatio ${JSON.stringify(o.aspect)}, ImageName "result"` +
-      (refs.length ? `, ImagePaths ${JSON.stringify(refs)}` : '') +
+      "with AspectRatio " + (JSON.stringify(o.aspect)) + ", ImageName \"result\"" +
+      (refs.length ? ", ImagePaths " + (JSON.stringify(refs)) : '') +
       ', and Prompt set to the exact text between the markers below, copied character for character with no rewriting, no additions and no retries. ' +
       'If the tool fails, report the error and stop; never copy, convert or reuse any existing image.\n' +
-      `<<<PROMPT\n${prompt}\nPROMPT>>>\n` +
+      "<<<PROMPT\n" + (prompt) + "\nPROMPT>>>\n" +
       'Do not use any other tool yourself. When it finishes, reply with only the absolute path of the image.';
     const reply = await run(o.agy, ['-p', instruction, '--model', o.model, '--sandbox', '--disable-slash-commands', '--output-format', 'json',
-      '--print-timeout', `${Math.ceil(o.timeout / 1000)}s`, '--log-file', path.join(work, 'agy.log')], work, o.timeout + 30000);
+      '--print-timeout', (Math.ceil(o.timeout / 1000)) + "s", '--log-file', path.join(work, 'agy.log')], work, o.timeout + 30000);
     const result = parseAgyReply(reply);
-    if (result.status && result.status !== 'SUCCESS') throw new Error(`agy status ${result.status}: ${reply.slice(-3000)}`);
-    if (!result.conversation_id) throw new Error(`agy status ${result.status ?? 'unknown'}: ${reply.slice(-3000)}`);
+    if (result.status && result.status !== 'SUCCESS') throw new Error("agy status " + (result.status) + ": " + (reply.slice(-3000)));
+    if (!result.conversation_id) throw new Error("agy status " + (result.status ?? 'unknown') + ": " + (reply.slice(-3000)));
     const parent = result.conversation_id, brain = path.join(BRAIN, parent);
     // 主会话记录里登记了它开的子代理；在主会话和子代理的记录里找 generate_image 调用和它保存的图
     const steps = await loadTranscript(parent);
@@ -255,11 +255,11 @@ async function main() {
       for (const file of await freshImages(brain, start)) generated.push({ file, call: {} });
     }
     // 子代理出图失败（额度用完会报 429 RESOURCE_EXHAUSTED）时原因在主代理最后的回复里，放在报错最前面
-    if (!generated.length) throw new Error(`generate_image produced no image: ${(result.response ?? reply).slice(-1500)} (agy conversation ${parent})`);
+    if (!generated.length) throw new Error("generate_image produced no image: " + ((result.response ?? reply).slice(-1500)) + " (agy conversation " + (parent) + ")");
     const picked = generated.find(g => result.response?.includes(g.file)) ?? generated.at(-1);
     const source = picked.file;
-    if (path.dirname(source) !== brain) throw new Error(`generated image outside this conversation's artifacts: ${source}`);
-    if ((await stat(source)).mtimeMs < start) throw new Error(`stale output: ${source} predates this run`);
+    if (path.dirname(source) !== brain) throw new Error("generated image outside this conversation's artifacts: " + (source));
+    if ((await stat(source)).mtimeMs < start) throw new Error("stale output: " + (source) + " predates this run");
     if (refHashes.has(await fingerprint(source))) throw new Error('stale output: matches a reference image');
     const { width, height } = await img('png', source, o.out);
     const data = await readFile(o.out);

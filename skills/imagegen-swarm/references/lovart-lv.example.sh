@@ -1,6 +1,6 @@
 #!/bin/sh
 # Optional Lovart wrapper. lovart.mjs runs scripts/lovart_agent.py directly.
-# This file reads the three named keys from ~/.lovart/env and execs that shipped client.
+# This file reads the three named keys from $HOME/.lovart/env and execs that shipped client.
 # It does not source the file.
 # Set LOVART_AGENT_SKILL if this wrapper is copied out of the skill folder.
 #

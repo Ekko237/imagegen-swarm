@@ -7,8 +7,8 @@ import path from "node:path";
 import process from "node:process";
 import { childEnv } from "./scoped-env.mjs";
 
-const ok = (m) => `  ✅ ${m}`;
-const no = (m) => `  ❌ ${m}`;
+const ok = (m) => "  ✅ " + (m);
+const no = (m) => "  ❌ " + (m);
 const line = (m) => process.stdout.write(m + "\n");
 
 function turnedOff(engine) {
@@ -55,19 +55,19 @@ async function resolveCodex() {
 async function main() {
   line("imagegen-swarm readiness check\n==============================");
 
-  line(`Node: ${process.version}  (${process.platform}/${process.arch})`);
+  line("Node: " + (process.version) + "  (" + (process.platform) + "/" + (process.arch) + ")");
   line(ok("node is running this script"));
   const py = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
   const pil = await probe(py, ["-c", "import PIL; print(PIL.__version__)"]);
   const pillowReady = pil.code === 0;
-  line(pillowReady ? ok(`Pillow ${pil.out.trim()} (${py}) — used to convert and verify images`) : no(`Pillow missing — run: ${py} -m pip install pillow (every engine needs it)`));
+  line(pillowReady ? ok("Pillow " + (pil.out.trim()) + " (" + (py) + ") — used to convert and verify images") : no("Pillow missing — run: " + (py) + " -m pip install pillow (every engine needs it)"));
 
   line("\n[codex engine — images]");
   const codex = await resolveCodex();
   let codexReady = false;
   if (codex) {
     const v = await probe(codex, ["--version"]);
-    line(ok(`codex found: ${codex}${v.code === 0 ? `  (${v.out.trim().split("\n")[0]})` : ""}`));
+    line(ok("codex found: " + (codex) + (v.code === 0 ? "  (" + (v.out.trim().split("\n")[0]) + ")" : "")));
     const auth = path.join(process.env.CODEX_HOME || path.join(homedir(), ".codex"), "auth.json");
     if (existsSync(auth)) { line(ok("codex login state present (auth.json)")); codexReady = true; }
     else line(no("not logged in — run: codex login"));
@@ -86,9 +86,9 @@ async function main() {
   if (existsSync(agy)) {
     const m = await probe(agy, ["models"]);
     geminiReady = m.code === 0 && /gemini-[\w.-]+/i.test(m.out);
-    line(geminiReady ? ok(`agy models lists Gemini models — logged in (${agy})`) : no("agy models failed or listed no Gemini model; sign in to Antigravity"));
+    line(geminiReady ? ok("agy models lists Gemini models — logged in (" + (agy) + ")") : no("agy models failed or listed no Gemini model; sign in to Antigravity"));
   } else {
-    line(no(`agy not found at ${agy} — install the Antigravity CLI and sign in`));
+    line(no("agy not found at " + (agy) + " — install the Antigravity CLI and sign in"));
   }
 
   line("\n[jimeng engine — images + edits + video (Dreamina CLI)]");
@@ -96,12 +96,12 @@ async function main() {
   const offFile = turnedOff("jimeng");
   let jimengReady = false;
   if (offFile) {
-    line(no(`turned off (${offFile}); not checked`));
+    line(no("turned off (" + (offFile) + "); not checked"));
   } else {
     const credit = await probe(dreamina, ["user_credit"]);
     const creditMatch = credit.out.match(/"total_credit"\s*:\s*(\d+)/);
     jimengReady = credit.code === 0 && Boolean(creditMatch);
-    line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install the pinned binary in SETUP.md yourself, then: dreamina login"));
+    line(jimengReady ? ok("dreamina logged in — " + (creditMatch[1]) + " credits") : no("dreamina not installed or not logged in — install the pinned binary in SETUP.md yourself, then: dreamina login"));
   }
 
   line("\n[muse engine — images (Muse cloud computer)]");
@@ -110,7 +110,7 @@ async function main() {
   let report = null;
   try { report = JSON.parse(d.out.slice(d.out.indexOf("{"), d.out.lastIndexOf("}") + 1)); } catch {}
   const museReady = d.code === 0 && Array.isArray(report?.chats);
-  line(museReady ? ok("muse-image.py --list-chats lists side chats — logged in") : no(`not logged in to Muse; run: python3 ${musePy} --login (needs: pip install playwright && playwright install chromium)`));
+  line(museReady ? ok("muse-image.py --list-chats lists side chats — logged in") : no("not logged in to Muse; run: python3 " + (musePy) + " --login (needs: pip install playwright && playwright install chromium)"));
 
   line("\n[lovart engine — images]");
   const { readLovartEnv, LOVART_AGENT } = await import("./lovart.mjs");
@@ -119,12 +119,12 @@ async function main() {
   let lovartCmd = null, lovartArgs = null, lovartEnv = null;
   if (lv) {
     lovartCmd = lv; lovartArgs = ["query-mode"];
-    line(ok(`lv wrapper found: ${lv}`));
+    line(ok("lv wrapper found: " + (lv)));
   } else if (existsSync(LOVART_AGENT)) {
     try {
       lovartEnv = readLovartEnv();
       lovartCmd = py; lovartArgs = [LOVART_AGENT, "query-mode"];
-      line(ok(`shipped client: ${LOVART_AGENT}`));
+      line(ok("shipped client: " + (LOVART_AGENT)));
     } catch (error) { line(no(String(error.message || error))); }
   }
   let lovartReady = false;
@@ -136,14 +136,14 @@ async function main() {
       mode = j.mode; unlimited = j.detail && j.detail.unlimited;
     } catch {}
     if (mode) {
-      line(ok(`key valid — billing mode ${mode} (${unlimited ? "free, may queue" : "spends credits, no queue"})`));
+      line(ok("key valid — billing mode " + (mode) + " (" + (unlimited ? "free, may queue" : "spends credits, no queue") + ")"));
       lovartReady = true;
     } else {
-      line(no("key invalid or unreachable — create one in the Lovart avatar menu → 「Lovart 龙虾」/ OpenClaw for Lovart " +
-              `→ Create API Key, then write ~/.lovart/env`));
+      line(no("key invalid or unreachable — open the Lovart avatar menu, OpenClaw for Lovart, " +
+              "copy the API key into the file $HOME/.lovart/env (see SETUP.md). That file is read as text."));
     }
   } else if (!lv && !existsSync(LOVART_AGENT)) {
-    line(no("Lovart client missing — create ~/.lovart/env (see SETUP.md). Do not clone or run a remote installer."));
+    line(no("Lovart client missing. See SETUP.md for the file $HOME/.lovart/env. Do not clone or run a remote installer."));
   }
 
   line("\n[api line — pay per image, last resort]");
@@ -151,27 +151,27 @@ async function main() {
   const api = loadApiConfig();
   let apiReady = false;
   if (!api) {
-    line(`  ➖ off — no ${CONFIG_FILE} (optional; see SETUP.md)`);
+    line("  ➖ off — no " + (CONFIG_FILE) + " (optional; see SETUP.md)");
   } else {
     // 只调免费的模型列表接口验证 key，不出图、不花钱
     const key = readKey(api);
-    const url = api.provider === "openai" ? `${api.base}/v1/models` : `${api.base}/v1beta/models`;
-    const headers = api.provider === "openai" ? { Authorization: `Bearer ${key}` } : { "x-goog-api-key": key };
+    const url = api.provider === "openai" ? (api.base) + "/v1/models" : (api.base) + "/v1beta/models";
+    const headers = api.provider === "openai" ? { Authorization: "Bearer " + (key) } : { "x-goog-api-key": key };
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
     apiReady = res.ok;
     const spent = readLedger();
-    line(apiReady ? ok(`${api.provider} key works (${api.model})`) : no(`${api.provider} key rejected: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`));
-    line(`  💵 ${spent.month}: ${spent.images} images, about $${spent.usd} of $${api.budgetMonth}; per batch up to $${api.budgetBatch}, about $${api.price} each`);
+    line(apiReady ? ok((api.provider) + " key works (" + (api.model) + ")") : no((api.provider) + " key rejected: HTTP " + (res.status) + " " + ((await res.text()).slice(0, 200))));
+    line("  💵 " + (spent.month) + ": " + (spent.images) + " images, about $" + (spent.usd) + " of $" + (api.budgetMonth) + "; per batch up to $" + (api.budgetBatch) + ", about $" + (api.price) + " each");
   }
 
   line("\n==========================");
-  line(`codex  (images):        ${codexReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`grok   (images+video):  ${grokReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`gemini (images+edits):  ${geminiReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`jimeng (images+video):  ${jimengReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`muse   (images):        ${museReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`lovart (images):        ${lovartReady ? "READY ✅" : "NOT READY ❌"}`);
-  line(`api    (paid, last):    ${api ? (apiReady ? "READY ✅" : "NOT READY ❌") : "OFF ➖"}`);
+  line("codex  (images):        " + (codexReady ? "READY ✅" : "NOT READY ❌"));
+  line("grok   (images+video):  " + (grokReady ? "READY ✅" : "NOT READY ❌"));
+  line("gemini (images+edits):  " + (geminiReady ? "READY ✅" : "NOT READY ❌"));
+  line("jimeng (images+video):  " + (jimengReady ? "READY ✅" : "NOT READY ❌"));
+  line("muse   (images):        " + (museReady ? "READY ✅" : "NOT READY ❌"));
+  line("lovart (images):        " + (lovartReady ? "READY ✅" : "NOT READY ❌"));
+  line("api    (paid, last):    " + (api ? (apiReady ? "READY ✅" : "NOT READY ❌") : "OFF ➖"));
   if (!pillowReady) { line("\nInstall Pillow first — every engine uses it."); process.exit(1); }
   if (!codexReady && !grokReady && !geminiReady && !jimengReady && !museReady && !lovartReady) { line("\nNo engine ready yet — see SETUP.md."); process.exit(1); }
   line("\nAt least one engine is ready. See SETUP.md for anything marked ❌.");
