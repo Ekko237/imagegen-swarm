@@ -24,13 +24,52 @@ from playwright.sync_api import sync_playwright
 # 待确认在 button「Approvals」标签页；文件库 /library/files，根目录是云电脑的 /home/hatch，下载按钮叫「Download」。
 BASE = "https://muse.ai"
 
+def profile_roots():
+    home = Path.home()
+    return {
+        "swarm": (home / ".config" / "imagegen-swarm").resolve(),
+        "default": (home / ".config" / "imagegen-swarm" / "muse-browser").resolve(),
+        "legacy": (home / ".config" / "image-gen" / "muse-browser").resolve(),
+    }
+
+
+def allowed_profile(path):
+    """Resolve a Muse profile and refuse anything outside the documented directories.
+
+    Allowed: a directory under ~/.config/imagegen-swarm, or the legacy default
+    ~/.config/image-gen/muse-browser. The lock file is written beside that directory.
+    """
+    roots = profile_roots()
+    chosen = Path(path).expanduser()
+    if not chosen.is_absolute():
+        chosen = roots["swarm"] / chosen
+    resolved = chosen.resolve()
+    if resolved == roots["legacy"]:
+        return resolved
+    try:
+        resolved.relative_to(roots["swarm"])
+    except ValueError:
+        raise RuntimeError(
+            "Muse profile must be under "
+            + str(roots["swarm"])
+            + " or the default "
+            + str(roots["default"])
+            + ". Refusing "
+            + str(resolved)
+        ) from None
+    if resolved == roots["swarm"]:
+        raise RuntimeError("Muse profile must be a directory under " + str(roots["swarm"]) + ", not the directory itself")
+    return resolved
+
+
 def default_profile():
     # 新安装写到 imagegen-swarm。旧资料夹还在、新的还没建时继续用旧的，免得改名后要重新登录 Muse。
     chosen = os.environ.get("IMAGE_GEN_MUSE_PROFILE")
     if chosen:
-        return Path(chosen)
-    current = Path.home() / ".config" / "imagegen-swarm" / "muse-browser"
-    previous = Path.home() / ".config" / "image-gen" / "muse-browser"
+        return allowed_profile(chosen)
+    roots = profile_roots()
+    current = roots["default"]
+    previous = roots["legacy"]
     if current.exists() or not previous.exists():
         return current
     return previous
@@ -388,24 +427,20 @@ def approvals(page):
 
 
 def scoped_save_approval(detail, remote):
-    # True only for a write of this run's exact output file, or a create of that file's directory.
+    # True only when every absolute path in the request is this run's exact output file.
     text = " ".join(str(detail).split())
-    parent = str(Path(remote).parent)
     lowered = text.lower()
+    if remote not in text:
+        return False
     banned = ("curl", "wget", "sudo", "chmod", "chown", "ssh", "http://", "https://",
-              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink")
+              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink", "mkdir")
     if any(word in lowered for word in banned):
         return False
     paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
-    if not paths:
+    if paths != [remote]:
         return False
-    allowed = {remote, parent}
-    if any(path not in allowed for path in paths):
-        return False
-    write_words = ("write", "save", "create", "mkdir", "保存", "写入", "创建", "存成", "新建")
-    if remote in paths:
-        return any(word in text or word in lowered for word in write_words)
-    return parent in paths and any(word in text or word in lowered for word in ("mkdir", "create", "创建", "新建"))
+    write_words = ("write", "save", "保存", "写入", "存成")
+    return any(word in text or word in lowered for word in write_words)
 
 
 def wait_done(page, since, deadline, approved, cancel_file, remote):
@@ -478,11 +513,10 @@ def generate(args):
                 "任务：用你自己的出图工具生成 1 张图，只调用一次出图工具，不要上网找图，不要复制或改用任何现成图片。\n"
                 f"画面比例 {args.aspect}。" + (f"附件 {'、'.join(r.name for r in refs)} 是参考图，按提示词参照它们。" if refs else "") + "\n"
                 f"提示词（两行标记之间的原文，逐字使用，不改写、不增减）：\n<<<PROMPT\n{prompt}\nPROMPT>>>\n"
-                f"生成后把图片存成 PNG：{remote}（目录不存在就只建这个目录）。最后一条回复单独一行写「产出文件：{remote}」。\n"
+                f"生成后把图片存成这个精确路径的 PNG，不要另存其它文件：{remote}。最后一条回复单独一行写「产出文件：{remote}」。\n"
                 "出图工具失败或做不了就写明原因后结束，不要交别的图。")
         approved = []
         with browser() as page:
-            existing = {c["id"] for c in side_chats(page)}
             chat = None
             try:
                 chat, since = send(page, text, refs)
@@ -500,14 +534,15 @@ def generate(args):
                     image.save(out, "PNG")
                     width, height = image.width, image.height
             except BaseException as error:
-                # 失败也删掉本轮侧聊天；发送中途失败时编号可能还没拿到，按前后差集找出本轮新建的；删不掉时两个原因一起报
+                # 只删本轮已经记下编号的侧聊天。编号还没拿到时不动其它聊天。
                 try:
-                    for c in ([{"id": chat}] if chat else [c for c in side_chats(page) if c["id"] not in existing]):
-                        delete(page, c["id"])
+                    if chat:
+                        delete(page, chat)
                 except Exception as cleanup:
                     raise RuntimeError(f"{error}；另外：{cleanup}") from error
                 raise
-            delete(page, chat)
+            if chat:
+                delete(page, chat)
     return {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
             "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
 

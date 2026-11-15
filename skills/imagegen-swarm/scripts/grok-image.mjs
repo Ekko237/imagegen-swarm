@@ -5,7 +5,8 @@ import { mkdir, mkdtemp, readdir, readFile, copyFile, rm, stat } from 'node:fs/p
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STDIO_QUIET, markRunDir } from './safety.mjs';
+import { markRunDir } from './safety.mjs';
+import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 
 function parse(argv) {
   const o = { ratio: '1:1', video: false, timeout: 600000 };
@@ -35,7 +36,7 @@ function parse(argv) {
 
 function run(bin, args, cwd, limitMs = 60000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: [STDIO_QUIET, "pipe", "pipe"], shell: false });
+    const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
     let stdout = '', stderr = '', timedOut = false;
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });

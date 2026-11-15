@@ -5,8 +5,7 @@ import path from "node:path";
 // directory only when the marker equals this run's id.
 export const RUN_MARKER_FILE = ".imagegen-swarm-run";
 
-// Node stdio mode: this stream is not piped to the parent.
-export const STDIO_QUIET = "ignore";
+export { STDIO_DISCARD as STDIO_QUIET } from "./stdio-modes.mjs";
 
 export const WORK_NAME = /^\.(attempt-|codex-img-|gemini-image-|grok-image-|jimeng-image-|muse-image-|lovart-|api-image-)/;
 

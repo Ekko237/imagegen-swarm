@@ -1,0 +1,8 @@
+# ClawHub publish honors this file (same rules as gitignore).
+# Tests, evals, and examples live in the repository tests/ and examples/ directories.
+# These patterns keep a copy that is left in the skill folder out of the published bundle.
+evals/
+**/*.test.mjs
+**/*_test.py
+**/*.example.sh
+**/jobs.example.json

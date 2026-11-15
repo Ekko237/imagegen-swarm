@@ -24,7 +24,10 @@ def install_stubs():
 
 install_stubs()
 here = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location("muse_image_under_test", here / "muse-image.py")
+spec = importlib.util.spec_from_file_location(
+    "muse_image_under_test",
+    here.parent / "skills" / "imagegen-swarm" / "scripts" / "muse-image.py",
+)
 muse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(muse)
 
@@ -161,14 +164,29 @@ def test_choose_side_row_legacy_current_marker():
 def test_approval_requires_exact_output_write():
     remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
     assert muse.scoped_save_approval(f"write file {remote}", remote) is True
-    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/imagegen-swarm", remote) is True
+    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/imagegen-swarm", remote) is False
+    assert muse.scoped_save_approval(f"create directory {remote}", remote) is False
     assert muse.scoped_save_approval("read /home/hatch/workspace/imagegen-swarm", remote) is False
     assert muse.scoped_save_approval(f"write file {remote} and /tmp/other", remote) is False
     assert muse.scoped_save_approval(f"curl {remote}", remote) is False
     assert muse.scoped_save_approval("write file /home/hatch/workspace/imagegen-swarm/other.png", remote) is False
 
 
+def test_profile_stays_on_the_documented_default():
+    roots = muse.profile_roots()
+    assert muse.allowed_profile(roots["default"]) == roots["default"]
+    assert muse.allowed_profile(roots["legacy"]) == roots["legacy"]
+    assert muse.allowed_profile(roots["swarm"] / "other-profile") == (roots["swarm"] / "other-profile").resolve()
+    try:
+        muse.allowed_profile("/tmp/not-a-muse-profile")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("a profile outside the documented directories was accepted")
+
+
 if __name__ == "__main__":
+    test_profile_stays_on_the_documented_default()
     test_timeout_skips_and_dismisses()
     test_success_does_not_dismiss()
     test_dismiss_failure_still_continues()

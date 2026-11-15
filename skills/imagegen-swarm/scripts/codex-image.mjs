@@ -8,6 +8,7 @@ import path from "node:path";
 import process from "node:process";
 import { markRunDir, sandboxMayWiden, userApprovedSandboxWiden } from "./safety.mjs";
 import { SHELL_METACHAR } from "./shell-meta.mjs";
+import { STDIO_DISCARD } from "./stdio-modes.mjs";
 
 function parseArgs(argv) {
   const o = {
@@ -81,7 +82,7 @@ async function resolveCodex(explicit) {
     return explicit;
   }
   const onPath = await new Promise((res) => {
-    const c = spawn("codex", ["--version"], { stdio: "ignore", shell: process.platform === "win32" });
+    const c = spawn("codex", ["--version"], { stdio: STDIO_DISCARD, shell: process.platform === "win32" });
     c.on("error", () => res(false));
     c.on("close", (code) => res(code === 0));
   });

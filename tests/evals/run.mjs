@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadApiConfig } from '../scripts/api-image.mjs';
+import { loadApiConfig } from '../../skills/imagegen-swarm/scripts/api-image.mjs';
 
 // 用法：node evals/run.mjs <输出目录> [--only id,id]
 // 逐项跑 evals.json 的固定任务，核对机器能查的 checks；content 一栏留给评委看图打分
@@ -21,7 +21,8 @@ function engineOffNames() {
   return [...names];
 }
 const OFF = engineOffNames();
-const MUSE_PY = path.join(here, '..', 'scripts', 'muse-image.py');
+const scriptsDir = path.join(here, '..', '..', 'skills', 'imagegen-swarm', 'scripts');
+const MUSE_PY = path.join(scriptsDir, 'muse-image.py');
 
 function exec(bin, args) {
   return new Promise((resolve, reject) => {
@@ -35,7 +36,7 @@ function exec(bin, args) {
 }
 
 async function size(file) {
-  const r = await exec(PY, [path.join(here, '..', 'scripts', 'imgtool.py'), 'size', file]);
+  const r = await exec(PY, [path.join(scriptsDir, 'imgtool.py'), 'size', file]);
   if (r.code !== 0) throw new Error("imgtool size failed on " + (file) + ": " + (r.stderr));
   const { width, height } = JSON.parse(r.stdout);
   return [width, height];
@@ -61,7 +62,7 @@ async function main() {
       await mkdir(dir, { recursive: true });
       await writeFile(path.join(dir, 'jobs.json'), JSON.stringify(task.jobs));
       const started = Date.now();
-      const r = await exec('node', [path.join(here, '..', 'scripts', 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out')]);
+      const r = await exec('node', [path.join(scriptsDir, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out')]);
       const summary = JSON.parse(r.stdout.trim().split('\n').at(-1));
       const used = Object.values(summary.by_engine ?? {}).filter(n => n > 0).length;
       const failed = [];
@@ -81,7 +82,7 @@ async function main() {
     }
     const args = task.args.map(a => a.replace(/^\{(.+)\}$/, (_, id) => produced[id]));
     const started = Date.now();
-    const script = path.join(here, '..', 'scripts', SCRIPTS[task.engine]);
+    const script = path.join(scriptsDir, SCRIPTS[task.engine]);
     const r = await exec(script.endsWith('.py') ? PY : 'node', [script, ...args, '--out', file]);
     const report = JSON.parse(r.stdout.trim().split('\n').at(-1));
     const failed = [];

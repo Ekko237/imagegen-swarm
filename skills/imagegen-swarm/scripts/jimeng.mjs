@@ -26,7 +26,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import { STDIO_QUIET } from "./safety.mjs";
+import { STDIO_DISCARD, STDIO_PIPE } from "./stdio-modes.mjs";
 
 const GEN_SUBCOMMANDS = new Set([
   "text2image", "image2image", "image_upscale",
@@ -87,7 +87,7 @@ function resolveDreamina(explicit) {
 function run(bin, args) {
   return new Promise((resolve) => {
     let stdout = "", stderr = "";
-    const child = spawn(bin, args, { stdio: [STDIO_QUIET, "pipe", "pipe"], shell: false });
+    const child = spawn(bin, args, { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
     child.on("error", (e) => resolve({ code: -1, stdout, stderr: stderr + String(e) }));
     child.stdout.on("data", (c) => { stdout += c.toString(); });
     child.stderr.on("data", (c) => { stderr += c.toString(); });

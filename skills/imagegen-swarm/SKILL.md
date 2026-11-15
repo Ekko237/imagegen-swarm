@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
-description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images, and Gemini from up to 3. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.2.6
+description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. Not for crop, resize, convert, or other ordinary local image processing."
+version: 1.2.7
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -110,15 +110,19 @@ pay-per-image API line you configured keeps the queue moving.
 
 Privacy: a prompt and any reference images are sent to the external service for each engine that
 actually runs that job (OpenAI, Dreamina, xAI, Google, Muse, Lovart, or the API host in the
-pay-per-image setup). Do not send sensitive, confidential, or personal content unless the user has
-agreed that this provider may see it. Add another provider only after the user names
-that provider and agrees.
+pay-per-image setup). Lovart generation uploads only the reference files named in that job's `ref`
+list (or `--ref` on a single call). `scripts/lovart.mjs` passes each of those paths to
+`upload --file`, and `upload_file` sends that one file to Lovart's CDN. It does not upload the
+credentials file, the state file, or any path the user did not name. The `upload` command does the
+same for the single `--file` the user gave it. Do not send sensitive, confidential, or personal
+content unless the user has agreed that this provider may see it. Add another provider only after
+the user names that provider and agrees.
 
-An example job list is [references/jobs.example.json](references/jobs.example.json). Copy it and
-edit the prompts. Only `id` and `prompt` are required.
+An example job list has one object per image. Only `id` and `prompt` are required. A sample file
+lives in the git repository at `examples/jobs.example.json`; it is not part of the installed skill.
 
 ```bash
-node scripts/batch.mjs --jobs references/jobs.example.json --out out/
+node scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
 `ref` paths are relative to the job file, and `engine` pins a job to one engine. Output goes to
@@ -264,16 +268,16 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   (`LOGIN_WAIT_MS`), above the 15 minute generation default. Generation and `--list-chats` do not create it. Renaming the
   side chat is best-effort: if the current side-chat row cannot be identified, or the rename dialog
   fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
-  not rename a row it cannot prove is this side chat. On success it deletes only the side chat it
-  opened. On failure before that chat's id is known, it deletes side chats that were not in the
-  list taken just before send, so a side chat created in that window can be removed. If Muse asks
-  for approval, the script clicks "Allow once" only when every absolute path it can read in that
-  one request is exactly this run's output file or that file's parent directory, under
-  `/home/hatch/workspace/imagegen-swarm`, and the text also has a save or create word and none of a
-  small list of shell and network words. The check does not parse shell. Any other request,
-  including one whose paths the check cannot see, stops the run and returns the request text. Ask
-  the user before approving that request. One process at a time can use the browser. An existing
-  profile in the previous `image-gen` folder is still used until the user moves it.
+  not rename a row it cannot prove is this side chat. It deletes a side chat only when this run
+  recorded that chat's id, on success and on failure. If the id was never recorded, it does not
+  delete any chat. If Muse asks for approval, the script clicks "Allow once" only when the only
+  absolute path in that request is this run's exact output file and the text is a save of that
+  file. A request to create the parent directory, or any other path, stops the run and returns the
+  request text. Ask the user before approving that request. `IMAGE_GEN_MUSE_PROFILE` must resolve
+  under `$HOME/.config/imagegen-swarm` or be the legacy default
+  `$HOME/.config/image-gen/muse-browser`. Anything else is refused. One process at a time can use
+  the browser. An existing profile in the previous `image-gen` folder is still used until the user
+  moves it.
 - **lovart**: `scripts/lovart.mjs` runs `scripts/lovart_agent.py` (the command entry). HTTP calls
   are in `scripts/lovart_client.py` and the local project list is in `scripts/lovart_state.py`,
   split from the readable v1.1.1 client so each file stays small enough to review. It opens a fresh
@@ -286,7 +290,8 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   the prompt. A project that already has another name is left unchanged. `project-add` and
   `project-rename` update `$HOME/.lovart/state.json` and, when access keys are present, also send
   a rename to Lovart. Do not run those two commands unless the user asked to add or rename that
-  project. Image generation does not pass them. See [references/lovart.md](references/lovart.md).
+  project. Image generation does not pass them. It uploads only the reference files for that call.
+  See [references/lovart.md](references/lovart.md).
 - **api**: `provider` is `openai` or `gemini`. openai calls `/v1/images/generations`
   (`/v1/images/edits` with `image[]` when there are references); point `base_url` at any
   OpenAI-compatible gateway to use it instead. `gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5`
@@ -296,7 +301,8 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   `GEMINI_API_KEY` by default, change with `key_env`) or a `key_file` with mode 600, never from the
   config itself. 401/403, 402, exhausted quota or budget shut the line down; a plain 429 backs off.
   The ledger records finished images at the price you configured; your provider's bill is the real
-  number.
+  number. Reference limits for the paid Gemini line match the model: `gemini-2.5-flash-image`
+  takes 3, and later Gemini image models take 14, unless `max_refs` in the config says otherwise.
 
 Every engine checks that the returned image is new from this run and differs from the reference
 images after decoding, and converts non-PNG output to PNG.
@@ -313,11 +319,12 @@ the user named fails, report it instead of switching to the web.
 - `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits).
   With the api line configured, it checks the key against the free model-list endpoint and shows
   this month's spend and budget.
-- After changing a script, run `node scripts/reliability.test.mjs` first (no images, no cost; it
-  runs `batch.mjs` for real to check when the paid line does and does not take an image).
+- After changing a script, run `node tests/reliability.test.mjs` from the git repository first
+  (no images, no cost; it runs `batch.mjs` for real to check when the paid line does and does not
+  take an image). That test is not part of the installed skill.
 - Look at every image before delivering it; sample frames from videos.
-- After changing the skill, run the fixed tests: `node evals/run.mjs <outdir> [--only id,id]`. The
-  script checks status, aspect ratio, prompt passthrough and Muse cleanup; a judge scores each image
-  1–5 using the rubric in `evals/evals.json`. The change is done when every check passes and every
-  image scores at least 4. `api-t2i` and `api-edit` cost real money each run, so ask the user first;
-  they are skipped when the api line is not configured.
+- The fixed image tasks live in the git repository at `tests/evals/`, not in the installed skill.
+  `node tests/evals/run.mjs <outdir> [--only id,id]` checks status, aspect ratio, prompt passthrough
+  and Muse cleanup; a judge scores each image 1–5 using the rubric in `tests/evals/evals.json`.
+  `api-t2i` and `api-edit` cost real money each run, so ask the user first; they are skipped when
+  the api line is not configured.

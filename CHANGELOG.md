@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.7 - 2026-11-15
+
+- **ClawHub server scan follow-up. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up.
+- Tests, evals, and examples moved out of the published skill folder into `tests/` and `examples/`. `.clawhubignore` keeps those kinds of files out of a ClawHub publish. Batch queue decisions live in `scripts/batch-policy.mjs`. Stdio mode names live in `scripts/stdio-modes.mjs` as plain strings.
+- Lovart uploads only the reference files the user named for that call. Muse approval clicks through only for a save of this run's exact output file. Cleanup deletes a side chat only when this run recorded its id. `IMAGE_GEN_MUSE_PROFILE` must stay under `$HOME/.config/imagegen-swarm` or be the legacy default profile.
+- The paid Gemini API still allows 3 reference images for `gemini-2.5-flash-image` and 14 for later Gemini image models. The skill description now says so. Antigravity Gemini is still 3.
+
 ## 1.2.6 - 2026-11-15
 
 - **ClawHub scan follow-up. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up.

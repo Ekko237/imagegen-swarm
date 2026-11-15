@@ -186,8 +186,8 @@ Claude Code 和 Codex。
 <summary>测试</summary>
 
 ```bash
-node skills/imagegen-swarm/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
-node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node tests/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
+node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ```
 
 </details>

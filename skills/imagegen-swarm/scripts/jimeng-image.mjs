@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STDIO_QUIET, markRunDir } from './safety.mjs';
+import { markRunDir } from './safety.mjs';
+import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 
 // 即梦（Dreamina）引擎，参数和其他引擎一致：无 --ref 文生图，有 --ref 改图（image2image，最多 10 张），
 // --video 无 --ref 文生视频、有 --ref 图生视频（第一张参考图当首帧）。提交、轮询、下载交给同目录的 jimeng.mjs。
@@ -42,7 +43,7 @@ function parse(argv) {
 
 function run(bin, args, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: [STDIO_QUIET, "pipe", "pipe"] });
+    const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE] });
     let stdout = '', stderr = '';
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
