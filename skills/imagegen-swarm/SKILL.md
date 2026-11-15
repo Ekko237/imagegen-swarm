@@ -273,10 +273,11 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   delete any chat. Before Muse is started, batch creates the output directory and uses its real
   path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
   exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
-  the script clicks "Allow once" only when every path in that request is this run's output file
-  after `~` is read as `/home/hatch`, `.` and `..` are removed, and existing symlinks are resolved.
-  A request to create the parent directory, or any other path, stops the run and returns the
-  request text. Ask the user before approving that request. `IMAGE_GEN_MUSE_PROFILE` must resolve
+  the script clicks "Allow once" only in two cases. Every path is this run's output file, or the
+  only path is the cloud workspace directory `/home/hatch/workspace/imagegen-swarm` and the request
+  creates that directory. `~` is read as `/home/hatch`, `.` and `..` are removed, and existing
+  symlinks are resolved before that comparison. Any other directory or path stops the run and
+  returns the request text. Ask the user before approving that request. `IMAGE_GEN_MUSE_PROFILE` must resolve
   under `$HOME/.config/imagegen-swarm` or be the legacy default
   `$HOME/.config/image-gen/muse-browser`. Anything else is refused. One process at a time can use
   the browser. An existing profile in the previous `image-gen` folder is still used until the user

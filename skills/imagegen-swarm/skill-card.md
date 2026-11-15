@@ -31,7 +31,7 @@ Batch image and video generation across the accounts you already have. The agent
 
 - Add a provider only after you name that provider and agree.
 - Paid images run only from `$HOME/.config/imagegen-swarm/api.json`, which you create. The cap is the configured estimate (`price_per_image` times images reserved in the batch, including ones still in flight), checked against `budget_per_batch` and `budget_per_month` before a paid image starts. The provider invoice can differ.
-- The output directory is created before Muse starts. Muse clicks "Allow once" only when every path is this run's output file after `~`, `.`/`..`, and symlink resolution. A request to create the parent directory, or any other path, stops. Ask before approving it.
+- The output directory is created before Muse starts. Muse clicks "Allow once" for a save of this run's output file, or for creating exactly `/home/hatch/workspace/imagegen-swarm`. Paths are compared after `~`, `.`/`..`, and symlink resolution. Any other directory or path stops. Ask before approving it.
 - Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
 - `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
 - Lovart generation uploads only the reference files named for that job. It does not upload credentials or other local files.

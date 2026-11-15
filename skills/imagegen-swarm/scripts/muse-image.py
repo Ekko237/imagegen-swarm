@@ -468,8 +468,8 @@ def prepare_local_output(out):
 
 
 def scoped_save_approval(detail, remote):
-    # True only when every path in the request is this run's output file after normalization.
-    # A request to create the parent directory does not match that file, so it is not approved.
+    # True for a save of this run's output file, or for creating the one cloud workspace folder.
+    # That folder is REMOTE_DIR. A fresh Muse sandbox creates it once. Any other directory stops.
     text = " ".join(str(detail).split())
     lowered = text.lower()
     banned = ("curl", "wget", "sudo", "chmod", "chown", "ssh", "http://", "https://",
@@ -480,8 +480,13 @@ def scoped_save_approval(detail, remote):
     paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"(?:~(?:hatch)?|(?<!~))/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
     if not paths:
         return False
+    normalized = [canonical_output_path(item) for item in paths]
+    workspace = canonical_output_path(REMOTE_DIR)
+    if all(item == workspace for item in normalized):
+        create_words = ("mkdir", "create", "directory", "目录", "创建", "新建")
+        return any(word in lowered or word in text for word in create_words)
     wanted = canonical_output_path(remote)
-    if any(canonical_output_path(item) != wanted for item in paths):
+    if any(item != wanted for item in normalized):
         return False
     # "create directory <file>" is not a save of the file. A save may still say "create file".
     directory_words = ("mkdir", "directory", "目录")
@@ -494,7 +499,7 @@ def scoped_save_approval(detail, remote):
 
 def wait_done(page, since, deadline, approved, cancel_file, remote):
     # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）。
-    # 只点「Allow once」，且请求里的路径规范化后必须就是本轮那个输出文件。
+    # 只点「Allow once」。路径规范化后必须是本轮那个输出文件，或只创建云端工作目录 REMOTE_DIR。
     # 调用方（抢活脚本）要取消时会建 cancel_file：看到就按出错流程走，删掉侧聊天再退出
     idle = None
     while True:

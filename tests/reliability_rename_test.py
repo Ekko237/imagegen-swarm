@@ -166,7 +166,6 @@ def test_choose_side_row_legacy_current_marker():
 def test_approval_requires_exact_output_write():
     remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
     assert muse.scoped_save_approval(f"write file {remote}", remote) is True
-    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/imagegen-swarm", remote) is False
     assert muse.scoped_save_approval(f"create directory {remote}", remote) is False
     assert muse.scoped_save_approval("read /home/hatch/workspace/imagegen-swarm", remote) is False
     assert muse.scoped_save_approval(f"write file {remote} and /tmp/other", remote) is False
@@ -176,6 +175,22 @@ def test_approval_requires_exact_output_write():
     assert muse.scoped_save_approval(
         "write file /home/hatch/workspace/imagegen-swarm/.attempt-img-1.png", remote
     ) is False
+
+
+def test_approval_allows_only_the_cloud_workspace_directory():
+    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
+    workspace = "/home/hatch/workspace/imagegen-swarm"
+    assert muse.scoped_save_approval(f"mkdir {workspace}", remote) is True
+    assert muse.scoped_save_approval("create directory ~/workspace/imagegen-swarm", remote) is True
+    assert muse.scoped_save_approval(
+        "mkdir /home/hatch/workspace/imagegen-swarm/../imagegen-swarm", remote
+    ) is True
+    assert muse.scoped_save_approval("mkdir /home/hatch/workspace", remote) is False
+    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/other", remote) is False
+    assert muse.scoped_save_approval("mkdir /tmp/imagegen-swarm", remote) is False
+    assert muse.scoped_save_approval(f"mkdir {workspace} and /tmp/other", remote) is False
+    assert muse.scoped_save_approval(f"read {workspace}", remote) is False
+    assert muse.scoped_save_approval(f"mkdir {workspace} && curl {workspace}", remote) is False
 
 
 def test_approval_matches_normalized_output_path():
@@ -229,5 +244,6 @@ if __name__ == "__main__":
     test_choose_side_row_refuses_other_chats()
     test_choose_side_row_legacy_current_marker()
     test_approval_requires_exact_output_write()
+    test_approval_allows_only_the_cloud_workspace_directory()
     test_approval_matches_normalized_output_path()
     print("rename tests ok")
