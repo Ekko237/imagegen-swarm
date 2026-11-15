@@ -115,7 +115,7 @@ npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 
 ### Windows
 
-Copy `skills/imagegen-swarm` to `%USERPROFILE%\.claude\skills\imagegen-swarm` or `%USERPROFILE%\.codex\skills\imagegen-swarm`. On Windows, the scripts call `python` (or use the `PYTHON` env var). Install Pillow with `python -m pip install pillow`. The Jimeng installer requires Git Bash. Engine login steps are in [SETUP.md](skills/imagegen-swarm/SETUP.md).
+Copy `skills/imagegen-swarm` to `%USERPROFILE%\.claude\skills\imagegen-swarm` or `%USERPROFILE%\.codex\skills\imagegen-swarm`. On Windows, the scripts call `python` (or use the `PYTHON` env var). Install Pillow with `python -m pip install pillow`. The Jimeng binary for Windows is `dreamina.exe`; the pinned checksum is in [SETUP.md](skills/imagegen-swarm/SETUP.md).
 
 Check which engines are ready from the skill folder:
 

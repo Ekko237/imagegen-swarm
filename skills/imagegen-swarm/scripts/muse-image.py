@@ -244,8 +244,30 @@ def approvals(page):
     return page.evaluate(APPROVALS)
 
 
-def wait_done(page, since, deadline, approved, cancel_file):
-    # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）；待确认只批准指向本轮保存目录的请求。
+def scoped_save_approval(detail, remote):
+    # True only for a write of this run's exact output file, or a create of that file's directory.
+    text = " ".join(str(detail).split())
+    parent = str(Path(remote).parent)
+    lowered = text.lower()
+    banned = ("curl", "wget", "sudo", "chmod", "chown", "ssh", "http://", "https://",
+              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink")
+    if any(word in lowered for word in banned):
+        return False
+    paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
+    if not paths:
+        return False
+    allowed = {remote, parent}
+    if any(path not in allowed for path in paths):
+        return False
+    write_words = ("write", "save", "create", "mkdir", "保存", "写入", "创建", "存成", "新建")
+    if remote in paths:
+        return any(word in text or word in lowered for word in write_words)
+    return parent in paths and any(word in text or word in lowered for word in ("mkdir", "create", "创建", "新建"))
+
+
+def wait_done(page, since, deadline, approved, cancel_file, remote):
+    # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）。
+    # 只点「Allow once」，且请求必须是本轮输出文件的写入，或只创建该文件所在目录。
     # 调用方（抢活脚本）要取消时会建 cancel_file：看到就按出错流程走，删掉侧聊天再退出
     idle = None
     while True:
@@ -253,10 +275,9 @@ def wait_done(page, since, deadline, approved, cancel_file):
             raise RuntimeError("cancelled: another engine finished this image first")
         asks = approvals(page)
         if asks:
-            if not all(REMOTE_DIR in a["detail"] for a in asks):
-                raise RuntimeError(f"Muse 停在待确认上，请求与本轮文件无关，不代点：{json.dumps(asks, ensure_ascii=False)[:1500]}")
-            label = next(a["label"] for a in asks if a["label"] in ("Allow once", "Allow"))
-            page.get_by_role("button", name=label, exact=True).first.click()
+            if not all(a.get("label") == "Allow once" and scoped_save_approval(a.get("detail", ""), remote) for a in asks):
+                raise RuntimeError(f"Muse 停在待确认上，请求不是本轮输出文件的写入，不代点：{json.dumps(asks, ensure_ascii=False)[:1500]}")
+            page.get_by_role("button", name="Allow once", exact=True).first.click()
             approved.extend(a["detail"] for a in asks)
             idle = None
             continue
@@ -313,8 +334,8 @@ def generate(args):
                 "任务：用你自己的出图工具生成 1 张图，只调用一次出图工具，不要上网找图，不要复制或改用任何现成图片。\n"
                 f"画面比例 {args.aspect}。" + (f"附件 {'、'.join(r.name for r in refs)} 是参考图，按提示词参照它们。" if refs else "") + "\n"
                 f"提示词（两行标记之间的原文，逐字使用，不改写、不增减）：\n<<<PROMPT\n{prompt}\nPROMPT>>>\n"
-                f"生成后把图片存成 PNG：{remote}（目录不存在就先建）。最后一条回复单独一行写「产出文件：{remote}」。\n"
-                "不要等用户批准；出图工具失败或做不了就写明原因后结束，不要交别的图。")
+                f"生成后把图片存成 PNG：{remote}（目录不存在就只建这个目录）。最后一条回复单独一行写「产出文件：{remote}」。\n"
+                "出图工具失败或做不了就写明原因后结束，不要交别的图。")
         approved = []
         with browser() as page:
             existing = {c["id"] for c in side_chats(page)}
@@ -325,7 +346,7 @@ def generate(args):
                 if not rename_or_continue(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip()):
                     print("muse rename skipped; continuing", file=sys.stderr)
                 open_url(page, f"{BASE}/thread/{chat}")
-                replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file)
+                replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file, remote)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")
                 if remote not in re.findall(r"产出文件[:：]\s*(\S+)", last):
                     raise RuntimeError(f"Muse 没交出 {remote}；最后回复：{last[-1500:]}")

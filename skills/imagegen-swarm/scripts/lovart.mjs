@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isInvokedDirectly } from "./direct.mjs";
 
 // 图片转换交给跨平台的 imgtool.py（Pillow）
 const PY = process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3");
-const IMGTOOL = path.join(path.dirname(fileURLToPath(import.meta.url)), "imgtool.py");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const IMGTOOL = path.join(here, "imgtool.py");
+export const LOVART_AGENT = path.join(here, "lovart_agent.py");
 
 let JSON_MODE = false;
 
@@ -27,7 +30,7 @@ function printHelp() {
   --model <tool>      锁定模型，默认 generate_image_nano_banana_pro
                       可选 generate_image_seedream_v4_5 / generate_image_gpt_image_2 等
   --mode <m>          fast(默认) | thinking
-  --lv <path>         lv 包装脚本位置（默认 $LOVART_LV 或 ~/tools/lovart-skill/lv）
+  --lv <path>         可选包装脚本。默认用本目录的 lovart_agent.py
   --timeout <sec>     单次 chat 超时，默认 300
   --json              输出单行 JSON
 `);
@@ -39,10 +42,10 @@ function fail(msg, kind = "error") {
   process.exit(kind === "invalid_args" ? 2 : 1);
 }
 
-function run(cmd, args, timeoutSec) {
+function run(cmd, args, timeoutSec, extraEnv) {
   return new Promise((res) => {
     let out = "", err = "", killed = false;
-    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: extraEnv ? { ...process.env, ...extraEnv } : process.env });
     const t = timeoutSec ? setTimeout(() => { killed = true; c.kill("SIGKILL"); }, timeoutSec * 1000) : null;
     c.on("error", (e) => { if (t) clearTimeout(t); res({ code: -1, out, err: err + e }); });
     c.stdout.on("data", (d) => (out += d));
@@ -60,12 +63,40 @@ function lastJson(t) {
   try { return JSON.parse(t.slice(start, end + 1)); } catch { return null; }
 }
 
-// --lv 是显式意图：给了就必须存在，不静默回退到默认位置（否则调试时会跑错二进制）
+// Reads ~/.lovart/env as text. Does not execute it. Owner-only modes pass; 644 does not.
+export function readLovartEnv(env = process.env) {
+  const file = env.LOVART_ENV || path.join(homedir(), ".lovart", "env");
+  const out = {};
+  for (const key of ["LOVART_ACCESS_KEY", "LOVART_SECRET_KEY", "LOVART_BASE_URL"]) {
+    if (env[key]) out[key] = env[key];
+  }
+  if (!existsSync(file)) return out;
+  let mode = 0;
+  try { mode = statSync(file).mode & 0o777; } catch { mode = 0; }
+  if (mode && (mode & 0o077) !== 0) {
+    const error = new Error(`Refusing to read ${file}: mode ${mode.toString(8)} is not owner-only`);
+    error.code = "LOVART_ENV_MODE";
+    throw error;
+  }
+  let text = "";
+  try { text = readFileSync(file, "utf8"); } catch { return out; }
+  for (const line of text.split(/\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?(LOVART_ACCESS_KEY|LOVART_SECRET_KEY|LOVART_BASE_URL)\s*=\s*(.*)$/);
+    if (!match || out[match[1]]) continue;
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    out[match[1]] = value;
+  }
+  return out;
+}
+
+// --lv is explicit: it must exist. Otherwise an existing wrapper is kept, then the shipped client.
 function resolveLv(explicit) {
-  if (explicit) return existsSync(explicit) ? explicit : null;
+  if (explicit) return existsSync(explicit) ? { cmd: explicit, args: [], env: {} } : null;
   const cands = [process.env.LOVART_LV, path.join(homedir(), "tools", "lovart-skill", "lv")].filter(Boolean);
-  for (const p of cands) if (existsSync(p)) return p;
-  return null;
+  for (const p of cands) if (existsSync(p)) return { cmd: p, args: [], env: {} };
+  if (!existsSync(LOVART_AGENT)) return null;
+  return { cmd: PY, args: [LOVART_AGENT], env: readLovartEnv() };
 }
 
 async function main() {
@@ -92,9 +123,10 @@ async function main() {
   o.out = path.resolve(o.out);
   if (!o.prompt || !o.prompt.trim()) fail("--prompt (or --prompt-file) is required", "invalid_args");
 
-  const lv = resolveLv(o.lv);
-  if (!lv) fail("找不到 lv 包装脚本。装 https://github.com/lovartai/lovart-skill 到 ~/tools/lovart-skill/ " +
-                "并建 ~/.lovart/env（AK/SK 从 Lovart 头像菜单「Lovart 龙虾」取）", "not_configured");
+  let lv;
+  try { lv = resolveLv(o.lv); }
+  catch (error) { fail(error.message, "not_configured"); }
+  if (!lv) fail("Lovart client is missing. See SETUP.md and create ~/.lovart/env. Do not clone or run a remote installer.", "not_configured");
 
   const start = Date.now();
 
@@ -102,7 +134,7 @@ async function main() {
   const attachments = [];
   for (const ref of o.refs) {
     if (!existsSync(ref)) fail(`ref not found: ${ref}`, "invalid_args");
-    const r = await run(lv, ["upload", "--file", ref], 120);
+    const r = await run(lv.cmd, [...lv.args, "upload", "--file", ref], 120, lv.env);
     const j = lastJson(r.out);
     if (r.code !== 0 || !j || !j.url)
       fail(`upload failed for ${path.basename(ref)}: ${(j && j.message) || r.err.trim().slice(0, 200)}`);
@@ -125,7 +157,7 @@ async function main() {
   if (o.model) args.push("--prefer-models", JSON.stringify({ IMAGE: [o.model] }));
   if (o.mode) args.push("--mode", o.mode);
 
-  const r = await run(lv, args, o.timeout);
+  const r = await run(lv.cmd, [...lv.args, ...args], o.timeout, lv.env);
   if (r.killed) { await rm(tmp, { recursive: true, force: true }).catch(() => {});
                   fail(`timed out after ${o.timeout}s`, "timeout"); }
   const j = lastJson(r.out);
@@ -156,4 +188,4 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => fail(String(e && e.message || e)));
+if (isInvokedDirectly(import.meta.url)) main().catch((e) => fail(String(e && e.message || e)));

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 - 2026-11-15
+
+- **Security hardening for ClawHub scan.** Dreamina install steps are pinned checksums the user runs, instead of an unpinned pipe-to-shell installer. The Lovart client v1.1.1 is shipped as readable `scripts/lovart_agent.py`, so the agent does not clone or run a remote script. Grok is limited to the one imagine tool a job needs, plus writing inside the workspace sandbox. Muse clicks "Allow once" only for a write of that run's exact output file. Codex leaves `workspace-write` only when the user asked and the log shows the sandbox blocked the write. Required binaries and optional environment variables are declared in `metadata.openclaw`.
+
 ## 1.2.2 - 2026-11-14
 
 - **Images blocked when the paid line shuts down for budget now report the budget reason.** The failure names the per-batch or per-month limit instead of the generic no-engine message.

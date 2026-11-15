@@ -103,7 +103,20 @@ async function main() {
       ((!o.ref || o.video) ? `aspect_ratio=${JSON.stringify(o.ratio)}。\n` : '') +
       `生成成功后将本次工具产物保存到 ${JSON.stringify(output)}。${o.video ? '保留原始 MP4，不要重编码。' : '原样保存，不要转换格式。'}\n` +
       '不得复制历史图片、参考图或伪造图片。工具失败就报告原因并停止，不换引擎。最后只返回 JSON，含 status、path、原始产物 source_path。';
-    const reply = await run('grok', ['-p', instruction, '--output-format', 'json', '--always-approve', '--sandbox', 'workspace'], work, o.timeout);
+    // Scoped to this job's imagine tool plus Write inside the workspace sandbox.
+    // Shell and web tools are denied.
+    const reply = await run('grok', [
+      '-p', instruction,
+      '--output-format', 'json',
+      '--permission-mode', 'dontAsk',
+      '--sandbox', 'workspace',
+      '--tools', `${tool},Write`,
+      '--allow', tool,
+      '--allow', 'Write',
+      '--deny', 'Bash',
+      '--deny', 'WebFetch',
+      '--deny', 'WebSearch',
+    ], work, o.timeout);
     // 原始产物以本轮会话目录里新出现的文件为准，由脚本自己转换，不信任 Grok 转好的副本
     const result = JSON.parse(reply), sessionId = result.sessionId;
     // Grok 按指令最后回一段 JSON；它自己报失败时直接转述原因
