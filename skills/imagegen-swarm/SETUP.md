@@ -109,10 +109,15 @@ credits.
 
 ## Pay-per-image API line (optional)
 
-Keeps generating when every subscription runs out at once. You pay `price_per_image` USD for each
-finished image, and the line stops before `budget_per_batch` or `budget_per_month`. Off unless you
-configure it. Creating this file is your consent to that spend for images in a job list that no
-subscription engine can take. The agent must ask you before it creates this file, changes the
+Optional. Off until this file exists and `api` is in the batch's engine list. You pay
+`price_per_image` USD for each finished image, and the line stops before `budget_per_batch` or
+`budget_per_month`. For one image, the paid line starts only when it can take that image and either
+the job sets `"engine": "api"` or no enabled subscription engine can take it. A subscription engine
+can take an image when it is in the batch's engine list, is not shut down, has not already tried
+the image, the job does not name a different engine, and the image's ratio, reference count, and
+video fit it. Exhausted quota, no login, and no install shut an engine down. The paid line does not
+tail-steal, and it does not take an image a subscription engine can still take. Creating this file
+is your consent to that spend. The agent must ask you before it creates this file, changes the
 budgets, or generates paid images you did not ask for.
 
 Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then save
