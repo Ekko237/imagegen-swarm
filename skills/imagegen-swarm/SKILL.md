@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
-description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.2.7
+description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. Not for crop, resize, convert, or other ordinary local image processing."
+version: 1.2.8
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -105,8 +105,8 @@ The core is work-stealing: write the images you need as a job list and hand it t
 `scripts/batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free
 takes the next image it can handle, so every engine's quota is used and the batch finishes as fast
 as possible. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
-and if that engine is out of quota the next one does. When every subscription runs dry at once, a
-pay-per-image API line you configured keeps the queue moving.
+and if that engine is out of quota the next one does. A configured pay-per-image line takes a
+job in two cases: the job names `api`, or no enabled subscription engine can take that job.
 
 Privacy: a prompt and any reference images are sent to the external service for each engine that
 actually runs that job (OpenAI, Dreamina, xAI, Google, Muse, Lovart, or the API host in the
@@ -162,9 +162,14 @@ it stopped.
   `IMAGE_GEN_API_CONFIG` points at another file. It holds `provider`, `model`, `price_per_image`
   (an estimated USD amount, not the provider invoice), `budget_per_batch`, `budget_per_month`, and
   `lanes` (default 4). The key is not in the file. The user placing that file is their consent to
-  spend at most those estimated budgets, at `price_per_image`, on images in this job list that no
-  subscription engine can take. It never tail-steals and never spends money just to go faster. A
-  job with `"engine": "api"` goes straight to it. Before a paid image is started, this process
+  spend at most those estimated budgets, at `price_per_image`. For one image, the paid line starts
+  only when `api` can take it and either the job sets `"engine": "api"` or no enabled subscription
+  engine can take it. A subscription engine can take an image when it is in this batch's engine
+  list, is not shut down, has not already tried the image, the job does not name a different
+  engine, and the image's ratio, reference count, and video fit that engine. Exhausted quota, no
+  login, and no install shut an engine down. An image those engines cannot take because of ratio,
+  reference count, or video also goes to the paid line. The paid line does not tail-steal, and it
+  does not take an image a subscription engine can still take. Before a paid image is started, this process
   reserves it. (Images already reserved in this batch, including ones still in flight) times
   `price_per_image` is compared with `budget_per_batch`. The ledger total read when this process
   started, plus that same reservation, is compared with `budget_per_month`. If either comparison
@@ -311,9 +316,10 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
 Every engine checks that the returned image is new from this run and differs from the reference
 images after decoding, and converts non-PNG output to PNG.
 
-## When every engine is out of quota
+## When no script engine can take the image
 
-If the api line is configured and has budget left, `batch.mjs` already handed the images to it.
+If the api line is configured, in this batch's engine list, and has budget left, `batch.mjs` already
+uses it when the job names `api` or when no enabled subscription engine can take the image.
 Otherwise, generate in the ChatGPT, Gemini or Grok web app in a new browser tab, download and check
 the image, then close the tab. An engine error is different from running out of quota; if the engine
 the user named fails, report it instead of switching to the web.

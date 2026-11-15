@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.8 - 2026-11-15
+
+- **Paid-line docs match the router. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up. No script moved.
+- `SKILL.md` and `SETUP.md` state when the paid line starts: the job names `api`, or no enabled subscription engine can take that image. Quota is one reason a subscription engine cannot take it. Ratio, reference count, video, a shutdown for login or install, and an engine already tried are the others. The paid line still does not tail-steal.
+- SkillSpector 2.12.0 reads `.mjs` as text. Its type map labels `.mjs` as `other` rather than `javascript`, and that label does not leave the file uninspected. The `.mjs` entry points stay where `node scripts/batch.mjs` and the docs already call them.
+
 ## 1.2.7 - 2026-11-15
 
 - **ClawHub server scan follow-up. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up.
