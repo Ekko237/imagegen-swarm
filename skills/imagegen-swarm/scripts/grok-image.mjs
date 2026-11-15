@@ -34,7 +34,7 @@ function parse(argv) {
   return o;
 }
 
-function run(bin, args, cwd, limitMs = 60000) {
+function runProcess(bin, args, cwd, limitMs = 60000) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
     let stdout = '', stderr = '', timedOut = false;
@@ -84,7 +84,7 @@ async function main() {
     const isVideo = file => /\.(mp4|mov)$/i.test(file);
     async function fingerprints(files) {
       const images = files.filter(f => !isVideo(f));
-      const fps = images.length ? JSON.parse(await run(PY, [IMGTOOL, 'fp', ...images], work)).fp : [];
+      const fps = images.length ? JSON.parse(await runProcess(PY, [IMGTOOL, 'fp', ...images], work)).fp : [];
       return [...fps, ...await Promise.all(files.filter(isVideo).map(digest))];
     }
     const sessions = path.join(homedir(), '.grok', 'sessions');
@@ -108,7 +108,7 @@ async function main() {
       '不得复制历史图片、参考图或伪造图片。工具失败就报告原因并停止，不换引擎。最后只返回 JSON，含 status、path、原始产物 source_path。';
     // Scoped to this job's imagine tool plus Write inside the workspace sandbox.
     // Shell and web tools are denied.
-    const reply = await run('grok', [
+    const reply = await runProcess('grok', [
       '-p', instruction,
       '--output-format', 'json',
       '--permission-mode', 'dontAsk',
@@ -135,7 +135,7 @@ async function main() {
     const source = fresh.sort((a, b) => b.mtime - a.mtime)[0].file;
     if (oldHashes.has((await fingerprints([source]))[0])) throw new Error('stale output: matches pre-existing session media or reference');
     if (o.video) await copyFile(source, o.out);
-    else await run(PY, [IMGTOOL, 'png', source, o.out], work);
+    else await runProcess(PY, [IMGTOOL, 'png', source, o.out], work);
     const data = await readFile(o.out);
     if (o.video ? data.toString('ascii', 4, 8) !== 'ftyp' : !data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) throw new Error('invalid output media signature');
     console.log(JSON.stringify({ status: 'ok', path: o.out, engine: 'grok', source_path: source, bytes: (await stat(o.out)).size, elapsed_seconds: Math.round((Date.now() - start) / 1000) }));
