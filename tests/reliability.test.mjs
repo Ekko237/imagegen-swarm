@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { childEnv } from '../skills/imagegen-swarm/scripts/scoped-env.mjs';
 import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from '../skills/imagegen-swarm/scripts/safety.mjs';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isInvokedDirectly } from '../skills/imagegen-swarm/scripts/direct.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
-  failureText, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
+  failureText, medianSeconds, paidBudgetLeft, paidMayTake, prepareOutputDir, shouldSteal,
 } from '../skills/imagegen-swarm/scripts/batch.mjs';
 import { engineSpec, loadApiConfig, monthSpent, openaiSize } from '../skills/imagegen-swarm/scripts/api-image.mjs';
 import {
@@ -306,6 +306,23 @@ await checkAsync('BSD stat fallback still runs and does not mask no credits', as
     assert.equal(ok.code, 3, "stdout=" + (ok.stdout) + " stderr=" + (ok.stderr));
     assert.match(ok.stdout, /no credits/);
     assert.doesNotMatch(ok.stderr, /Refusing to run/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('output directory is created and resolved before a job starts', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-out-'));
+  try {
+    const real = path.join(dir, 'real');
+    const link = path.join(dir, 'link');
+    const missing = path.join(dir, 'missing', 'nested');
+    await mkdir(real);
+    await symlink(real, link);
+    assert.equal(await prepareOutputDir(link), await realpath(real));
+    const created = await prepareOutputDir(missing);
+    assert.equal(created, await realpath(missing));
+    assert.equal(await realpath(path.dirname(created)), await realpath(path.join(dir, 'missing')));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

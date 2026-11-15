@@ -1,7 +1,9 @@
 """Muse rename is cosmetic: a missing row or a failing dialog must not stop generation."""
 import importlib.util
 import io
+import shutil
 import sys
+import tempfile
 import types
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -170,6 +172,38 @@ def test_approval_requires_exact_output_write():
     assert muse.scoped_save_approval(f"write file {remote} and /tmp/other", remote) is False
     assert muse.scoped_save_approval(f"curl {remote}", remote) is False
     assert muse.scoped_save_approval("write file /home/hatch/workspace/imagegen-swarm/other.png", remote) is False
+    # A different temp name is not this file, even in the same directory.
+    assert muse.scoped_save_approval(
+        "write file /home/hatch/workspace/imagegen-swarm/.attempt-img-1.png", remote
+    ) is False
+
+
+def test_approval_matches_normalized_output_path():
+    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
+    assert muse.scoped_save_approval("write file ~/workspace/imagegen-swarm/img-1.png", remote) is True
+    assert muse.scoped_save_approval("write file ~hatch/workspace/imagegen-swarm/img-1.png", remote) is True
+    assert muse.scoped_save_approval(
+        "write file /home/hatch/workspace/imagegen-swarm/./img-1.png", remote
+    ) is True
+    assert muse.scoped_save_approval(
+        "save /home/hatch/workspace/imagegen-swarm/../imagegen-swarm/img-1.png", remote
+    ) is True
+    root = Path(tempfile.mkdtemp(prefix="muse-path-"))
+    try:
+        real = root / "real"
+        real.mkdir()
+        link = root / "link"
+        link.symlink_to(real, target_is_directory=True)
+        via_link = str(link / "img-1.png")
+        via_real = str(real / "img-1.png")
+        assert muse.canonical_output_path(via_link) == muse.canonical_output_path(via_real)
+        assert muse.scoped_save_approval(f"write file {via_real}", via_link) is True
+        prepared = muse.prepare_local_output(via_link)
+        assert prepared == muse.canonical_output_path(via_real, home=Path.home())
+        assert prepared.parent.is_dir()
+        assert not prepared.exists()
+    finally:
+        shutil.rmtree(root)
 
 
 def test_profile_stays_on_the_documented_default():
@@ -195,4 +229,5 @@ if __name__ == "__main__":
     test_choose_side_row_refuses_other_chats()
     test_choose_side_row_legacy_current_marker()
     test_approval_requires_exact_output_write()
+    test_approval_matches_normalized_output_path()
     print("rename tests ok")

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
@@ -19,6 +19,13 @@ export {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
   failureText, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
+
+// Create the output directory before any engine starts, and return its real path.
+// A symlink, or a path with ".." in it, becomes the directory files are actually written in.
+export async function prepareOutputDir(dir) {
+  await mkdir(dir, { recursive: true });
+  return await realpath(dir);
+}
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
 // 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
@@ -138,10 +145,10 @@ async function main() {
     if (ids.has(job.id)) throw new Error("duplicate job id: " + (job.id));
     ids.add(job.id);
     job.ref = (job.ref ?? []).map(r => path.resolve(base, r));
-    job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
     job.tried = [];
   }
-  await mkdir(o.out, { recursive: true });
+  o.out = await prepareOutputDir(o.out);
+  for (const job of jobs) job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
   const start = Date.now();
   const down = new Map();
   const rateStrikes = new Map();
@@ -206,6 +213,8 @@ async function main() {
     const temp = path.join(o.out, ".attempt-" + (job.id) + "-" + (engine) + "-" + (serial++) + (path.extname(job.file)));
     ownedNames.add(path.basename(temp));
     const script = path.join(here, e.script);
+    // The parent of the temp output exists before Muse (or any other engine) is started.
+    await prepareOutputDir(path.dirname(temp));
     // Muse 不能用信号停（它的浏览器库收到中断会卡住），改用取消文件
     record.cancelFile = engine === 'muse' ? (temp) + ".cancel" : null;
     if (record.cancelFile) ownedNames.add(path.basename(record.cancelFile));

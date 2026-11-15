@@ -77,6 +77,8 @@ def default_profile():
 
 PROFILE = default_profile()
 REMOTE_DIR = "/home/hatch/workspace/imagegen-swarm"
+# Muse's cloud computer home. "~" in an approval is this home, not the machine running the script.
+CLOUD_HOME = Path("/home/hatch")
 RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9")
 THREAD_RE = re.compile(r"/thread/([0-9a-f-]{36})")
 IDLE_SECONDS = 8
@@ -426,26 +428,73 @@ def approvals(page):
     return page.evaluate(APPROVALS)
 
 
+def canonical_output_path(path, home=CLOUD_HOME):
+    """One spelling for an output path: ~ expansion, . and .., then realpath of existing parents.
+
+    The file itself may not exist yet. Symlinks in directories that already exist are resolved,
+    and the missing tail is appended unchanged. "~" uses `home` (the cloud home for an approval,
+    the local home for --out).
+    """
+    text = str(path).strip().strip("'\"")
+    home = Path(home)
+    if text == "~":
+        text = str(home)
+    elif text.startswith("~/"):
+        text = str(home / text[2:])
+    elif text == "~hatch" or text.startswith("~hatch/"):
+        text = str(CLOUD_HOME / text[len("~hatch"):].lstrip("/"))
+    normalized = os.path.normpath(text)
+    if not os.path.isabs(normalized):
+        normalized = os.path.normpath(str(home / normalized))
+    current = Path(normalized)
+    missing = []
+    while current != current.parent and not current.exists():
+        missing.append(current.name)
+        current = current.parent
+    try:
+        resolved = current.resolve()
+    except OSError:
+        resolved = current
+    for name in reversed(missing):
+        resolved = resolved / name
+    return Path(os.path.normpath(str(resolved)))
+
+
+def prepare_local_output(out):
+    """Create the local output's parent before Muse is asked to do anything, and return its real path."""
+    path = canonical_output_path(out, home=Path.home())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def scoped_save_approval(detail, remote):
-    # True only when every absolute path in the request is this run's exact output file.
+    # True only when every path in the request is this run's output file after normalization.
+    # A request to create the parent directory does not match that file, so it is not approved.
     text = " ".join(str(detail).split())
     lowered = text.lower()
-    if remote not in text:
-        return False
     banned = ("curl", "wget", "sudo", "chmod", "chown", "ssh", "http://", "https://",
-              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink", "mkdir")
+              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink")
     if any(word in lowered for word in banned):
         return False
-    paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
-    if paths != [remote]:
+    # "~/" is one path. Do not also treat the slash after "~" as a second absolute path.
+    paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"(?:~(?:hatch)?|(?<!~))/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
+    if not paths:
         return False
-    write_words = ("write", "save", "保存", "写入", "存成")
+    wanted = canonical_output_path(remote)
+    if any(canonical_output_path(item) != wanted for item in paths):
+        return False
+    # "create directory <file>" is not a save of the file. A save may still say "create file".
+    directory_words = ("mkdir", "directory", "目录")
+    file_words = ("write", "save", "保存", "写入", "存成")
+    if any(word in lowered or word in text for word in directory_words) and not any(word in text or word in lowered for word in file_words):
+        return False
+    write_words = file_words + ("create", "创建")
     return any(word in text or word in lowered for word in write_words)
 
 
 def wait_done(page, since, deadline, approved, cancel_file, remote):
     # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）。
-    # 只点「Allow once」，且请求必须是本轮输出文件的写入，或只创建该文件所在目录。
+    # 只点「Allow once」，且请求里的路径规范化后必须就是本轮那个输出文件。
     # 调用方（抢活脚本）要取消时会建 cancel_file：看到就按出错流程走，删掉侧聊天再退出
     idle = None
     while True:
@@ -496,8 +545,8 @@ def generate(args):
     prompt = (Path(args.prompt_file).read_text(encoding="utf-8") if args.prompt_file else args.prompt).strip()
     if not prompt:
         raise ValueError("empty prompt")
-    out = Path(args.out).resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
+    # Parent first, then the prompt. Muse is not asked to create this directory.
+    out = prepare_local_output(args.out)
     with tempfile.TemporaryDirectory(prefix=".muse-image-", dir=out.parent) as tmp:
         work = Path(tmp)
         mark_run_dir(work)
@@ -513,7 +562,7 @@ def generate(args):
                 "任务：用你自己的出图工具生成 1 张图，只调用一次出图工具，不要上网找图，不要复制或改用任何现成图片。\n"
                 f"画面比例 {args.aspect}。" + (f"附件 {'、'.join(r.name for r in refs)} 是参考图，按提示词参照它们。" if refs else "") + "\n"
                 f"提示词（两行标记之间的原文，逐字使用，不改写、不增减）：\n<<<PROMPT\n{prompt}\nPROMPT>>>\n"
-                f"生成后把图片存成这个精确路径的 PNG，不要另存其它文件：{remote}。最后一条回复单独一行写「产出文件：{remote}」。\n"
+                f"生成后只把 PNG 写入这个精确路径，不要创建目录，不要先写临时文件再改名，不要另存其它文件：{remote}。最后一条回复单独一行写「产出文件：{remote}」。\n"
                 "出图工具失败或做不了就写明原因后结束，不要交别的图。")
         approved = []
         with browser() as page:
@@ -525,7 +574,8 @@ def generate(args):
                 open_url(page, f"{BASE}/thread/{chat}")
                 replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file, remote)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")
-                if remote not in re.findall(r"产出文件[:：]\s*(\S+)", last):
+                delivered = [item.rstrip(".,);]\"'") for item in re.findall(r"产出文件[:：]\s*(\S+)", last)]
+                if not any(canonical_output_path(item) == canonical_output_path(remote) for item in delivered):
                     raise RuntimeError(f"Muse 没交出 {remote}；最后回复：{last[-1500:]}")
                 saved = download(page, remote, work)
                 if fingerprint(saved) in ref_hashes:

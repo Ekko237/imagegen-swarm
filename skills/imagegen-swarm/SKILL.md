@@ -270,9 +270,12 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
   not rename a row it cannot prove is this side chat. It deletes a side chat only when this run
   recorded that chat's id, on success and on failure. If the id was never recorded, it does not
-  delete any chat. If Muse asks for approval, the script clicks "Allow once" only when the only
-  absolute path in that request is this run's exact output file and the text is a save of that
-  file. A request to create the parent directory, or any other path, stops the run and returns the
+  delete any chat. Before Muse is started, batch creates the output directory and uses its real
+  path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
+  exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
+  the script clicks "Allow once" only when every path in that request is this run's output file
+  after `~` is read as `/home/hatch`, `.` and `..` are removed, and existing symlinks are resolved.
+  A request to create the parent directory, or any other path, stops the run and returns the
   request text. Ask the user before approving that request. `IMAGE_GEN_MUSE_PROFILE` must resolve
   under `$HOME/.config/imagegen-swarm` or be the legacy default
   `$HOME/.config/image-gen/muse-browser`. Anything else is refused. One process at a time can use
