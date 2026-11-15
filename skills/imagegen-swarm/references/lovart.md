@@ -1,6 +1,6 @@
 # lovart engine details
 
-Lovart is a design agent that plans, picks models and calls tools by itself. The programmatic entry is the Python CLI in the official MIT repo [lovartai/lovart-skill](https://github.com/lovartai/lovart-skill) (standard library only), talking to `lgw.lovart.ai` with AK/SK signatures. Trust only that repo and `www.lovart.ai/docs`; the "API docs" on `lovart.pro` and `lovart.info` are AI-generated imitations.
+Lovart is a design agent that plans, picks models and calls tools by itself. This skill runs the readable client at `scripts/lovart_agent.py`, a pinned copy of the official MIT client [lovartai/lovart-skill](https://github.com/lovartai/lovart-skill) v1.1.1 (standard library only). It talks to `lgw.lovart.ai` with AK/SK signatures. Trust only that upstream project and `www.lovart.ai/docs`; the "API docs" on `lovart.pro` and `lovart.info` are AI-generated imitations.
 
 ## Usage
 
@@ -9,11 +9,11 @@ node scripts/lovart.mjs --out cat.png --prompt "a cyberpunk cat in neon city" --
 node scripts/lovart.mjs --out shot.png --aspect 2:3 --ref product.jpg --prompt "Re-photograph this exact build on linen, macro, warm light" --json
 ```
 
-`--ref` uploads to the Lovart CDN and attaches the URL; `--mode thinking` uses the deeper mode; `--lv` points at the wrapper. Failure `error_kind` values: `invalid_args`, `not_configured` (no lv wrapper or credentials), `timeout`, `no_image` (text reply only), `error`.
+`--ref` uploads to the Lovart CDN and attaches the URL; `--mode thinking` uses the deeper mode; `--lv` points at an optional wrapper. Failure `error_kind` values: `invalid_args`, `not_configured` (no client or credentials), `timeout`, `no_image` (text reply only), `error`.
 
 ## Wrapper
 
-`lovart.mjs` does not ship the `lv` binary. Copy [lovart-lv.example.sh](lovart-lv.example.sh) to `~/tools/lovart-skill/lv` after cloning the official repo, or set `LOVART_LV`. The example loads `~/.lovart/env` (or `LOVART_ENV`) and checks that the file is owner-only. That check is `stat -c %a` when GNU stat is available, and `stat -f %Lp` otherwise, so Linux and macOS both work. When the mode cannot be read, the wrapper still execs the CLI and passes its stdout, stderr, and exit code through. A real "no credits" response is not hidden behind a failed permission check. See [SETUP.md](../SETUP.md).
+`lovart.mjs` runs the readable client shipped in this skill at `scripts/lovart_agent.py` (lovartai/lovart-skill v1.1.1). It reads `~/.lovart/env` (or `LOVART_ENV`) as text and checks that the file is owner-only. A mode such as `644` is refused; `600` is accepted. When the mode cannot be read, the client still runs, so a real "no credits" response is not hidden behind a failed permission check. An optional wrapper, [lovart-lv.example.sh](lovart-lv.example.sh), runs that same file. It uses `stat -c %a` when GNU stat is available, and `stat -f %Lp` otherwise. Do not clone or execute a remote copy. See [SETUP.md](../SETUP.md).
 
 Underlying CLI: `lv query-mode` (check the key and billing mode), `lv upload --file x.jpg`, `lv chat --prompt ... --attachments <URL> --json --download --output-dir out/`, `lv set-mode --fast|--unlimited`.
 

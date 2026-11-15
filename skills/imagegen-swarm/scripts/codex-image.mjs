@@ -51,8 +51,9 @@ function parseArgs(argv) {
 function printHelp() {
   process.stdout.write(`codex-image.mjs — image via Codex CLI image_gen\n\n` +
     `node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--escalate-sandbox] [--timeout ms] [--retries n] [--codex path] [--model gpt-6-luna] [--effort low] [--json]\n\n` +
-    `--escalate-sandbox: if the default workspace-write run is blocked from writing the PNG,\n` +
-    `retry remaining attempts with danger-full-access. Drops Codex's isolation — opt-in only.\n`);
+    `--escalate-sandbox: only after the user agrees, and only when the log says the\n` +
+    `workspace-write sandbox blocked the PNG write. Remaining attempts then use\n` +
+    `danger-full-access. Other failures stay in workspace-write.\n`);
 }
 
 let JSON_MODE = false;
@@ -183,6 +184,12 @@ async function isPng(file) {
   } catch { return false; }
 }
 
+function sandboxBlocked(run) {
+  const text = `${run.stderr || ""}\n${run.stdout || ""}`.toLowerCase();
+  if (text.includes("operation not permitted")) return true;
+  return text.includes("sandbox") && /block|denied|not permitted|permission|eacces|eperm/.test(text);
+}
+
 function runCodexExec(codex, instruction, o, cwd) {
   return new Promise((resolve) => {
     // 固定走 OpenAI 官方通道：config.toml 可能把 Codex 接到本机路由网关，网关不转发 image_gen
@@ -239,14 +246,17 @@ async function main() {
       else process.stdout.write(`OK  codex  ${o.out}  (${s.size} bytes, ${result.elapsed_seconds}s, attempt ${attempt})\n`);
       process.exit(0);
     }
-    lastErr = run.code !== 0 ? `codex exec exited ${run.code}: ${run.stderr.slice(0, 200)}` : `no valid PNG at ${o.out} (agent may not have called image_gen, or sandbox blocked the write — try --sandbox with a broader mode)`;
+    lastErr = run.code !== 0 ? `codex exec exited ${run.code}: ${run.stderr.slice(0, 200)}` : `no valid PNG at ${o.out} (agent may not have called image_gen, or sandbox blocked the write)`;
     if (!o.json) process.stderr.write(`[codex] attempt ${attempt} failed: ${lastErr}\n`);
-    if (o.escalateSandbox && o.sandbox !== "danger-full-access") {
+    const blocked = sandboxBlocked(run);
+    if (o.escalateSandbox && blocked && o.sandbox !== "danger-full-access") {
       o.sandbox = "danger-full-access";
-      if (!o.json) process.stderr.write(`[codex] --escalate-sandbox given -> retrying remaining attempts with danger-full-access\n`);
-    } else if (o.sandbox === "workspace-write") {
-      lastErr += ` — if the sandbox blocked the write, re-run with --escalate-sandbox (or --sandbox danger-full-access); both drop Codex's isolation`;
-      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox on your behalf; pass --escalate-sandbox to allow it\n`);
+      if (!o.json) process.stderr.write(`[codex] sandbox blocked the write and --escalate-sandbox was set -> retrying remaining attempts with danger-full-access\n`);
+    } else if (blocked && o.sandbox === "workspace-write") {
+      lastErr += ` — sandbox blocked the write. Ask the user before re-running with --escalate-sandbox`;
+      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox; ask the user before passing --escalate-sandbox\n`);
+    } else if (o.escalateSandbox && !blocked) {
+      if (!o.json) process.stderr.write(`[codex] not escalating: this failure is not a sandbox block\n`);
     }
   }
   fail("generation_failed", `${lastErr} (logs: ${logDir})`);

@@ -79,8 +79,19 @@ def test_dismiss_failure_still_continues():
     assert muse.rename_or_continue(page, "chat-id", "title") is False
 
 
+def test_approval_requires_exact_output_write():
+    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
+    assert muse.scoped_save_approval(f"write file {remote}", remote) is True
+    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/imagegen-swarm", remote) is True
+    assert muse.scoped_save_approval("read /home/hatch/workspace/imagegen-swarm", remote) is False
+    assert muse.scoped_save_approval(f"write file {remote} and /tmp/other", remote) is False
+    assert muse.scoped_save_approval(f"curl {remote}", remote) is False
+    assert muse.scoped_save_approval("write file /home/hatch/workspace/imagegen-swarm/other.png", remote) is False
+
+
 if __name__ == "__main__":
     test_timeout_skips_and_dismisses()
     test_success_does_not_dismiss()
     test_dismiss_failure_still_continues()
+    test_approval_requires_exact_output_write()
     print("rename tests ok")

@@ -1,11 +1,80 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images, and Gemini from up to 3. Not for crop, resize, convert, or other ordinary local image processing."
+version: 1.2.3
+metadata:
+  openclaw:
+    requires:
+      bins:
+        - node
+      anyBins:
+        - python3
+        - python
+    envVars:
+      - name: PYTHON
+        required: false
+        description: Python used for imgtool.py, Muse, and the Lovart client. Defaults to python3, or python on Windows.
+      - name: CODEX_BIN
+        required: false
+        description: Path to the Codex CLI when it is not on PATH.
+      - name: CODEX_HOME
+        required: false
+        description: Codex home directory. Defaults to ~/.codex.
+      - name: AGY_BIN
+        required: false
+        description: Path to the Antigravity CLI. Defaults to ~/.local/bin/agy.
+      - name: DREAMINA_INSTALL_DIR
+        required: false
+        description: Directory containing the user-installed dreamina binary.
+      - name: LOVART_ACCESS_KEY
+        required: false
+        description: Lovart access key. Read from the environment or from ~/.lovart/env.
+      - name: LOVART_SECRET_KEY
+        required: false
+        description: Lovart secret key. Read from the environment or from ~/.lovart/env.
+      - name: LOVART_ENV
+        required: false
+        description: Credentials file for Lovart. Defaults to ~/.lovart/env and must be owner-only.
+      - name: LOVART_BASE_URL
+        required: false
+        description: "Lovart API base URL. Defaults to https://lgw.lovart.ai."
+      - name: LOVART_LV
+        required: false
+        description: Optional Lovart wrapper path. The shipped client is scripts/lovart_agent.py.
+      - name: LOVART_AGENT_SKILL
+        required: false
+        description: Optional override for the Lovart client script. Defaults to scripts/lovart_agent.py.
+      - name: OPENAI_API_KEY
+        required: false
+        description: Optional pay-per-image key when api.json uses the OpenAI provider.
+      - name: GEMINI_API_KEY
+        required: false
+        description: Optional pay-per-image key when api.json uses the Gemini provider.
+      - name: IMAGE_GEN_API_CONFIG
+        required: false
+        description: Override path for the pay-per-image api.json config.
+      - name: IMAGE_GEN_API_LEDGER
+        required: false
+        description: Override path for the pay-per-image spend ledger.
+      - name: IMAGE_GEN_ENGINE_OFF
+        required: false
+        description: Directory of per-engine off switches. Defaults to ~/.config/imagegen-swarm/engine-off.
+      - name: IMAGE_GEN_MEMORY_GB
+        required: false
+        description: RAM budget in GB used to size engine lanes.
+      - name: IMAGE_GEN_MUSE_PROFILE
+        required: false
+        description: Muse browser profile directory. Defaults to ~/.config/imagegen-swarm/muse-browser.
+      - name: HTTPS_PROXY
+        required: false
+        description: Optional proxy for the Muse browser only.
 ---
 
 # imagegen-swarm
 
 Use this when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video, including Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, and Lovart. Do not use it for ordinary local image processing such as crop, resize, or convert.
+
+Run only the scripts in this folder (`node` for `.mjs`, `python3` for `.py`). Those files are the whole procedure. Do not fetch, clone, or execute an installer, and do not read or follow a skill file outside this folder. Engine CLIs are user-installed prerequisites listed in [SETUP.md](SETUP.md). If one is missing, ask the user to install it and stop; do not install it yourself. Before running any command that is not one of these scripts, ask the user, and request only the permission that command needs.
 
 The core is work-stealing: write the images you need as a job list and hand it to `batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free takes the next image it can handle, so every engine's quota is used and the batch finishes as fast as possible. A single image goes through `batch.mjs` too: the first engine in line takes it, and if that engine is out of quota the next one does. When every subscription runs dry at once, a pay-per-image API line you configured keeps the queue moving.
 
@@ -41,12 +110,12 @@ Each engine script also works on its own (run `.mjs` with node, `.py` with pytho
 
 ## Engine notes
 
-- **codex**: calls Codex's built-in `image_gen`. Always uses the official OpenAI provider (`-c model_provider="openai"`; `--model` defaults to `gpt-6-luna`, `--effort` to `low`), so it still works when the local Codex config points at a custom gateway. Runs in the `workspace-write` sandbox; use `--escalate-sandbox` only with the user's consent. It snapshots `~/.codex/generated_images` first and rejects any output identical to an older file. See [references/codex.md](references/codex.md).
-- **grok**: read `~/.grok/bundled/skills/imagine/SKILL.md` first. No `--ref` → text to image; `--ref` → edit (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio` cannot be auto). Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user rather than changing the setting.
-- **jimeng**: uses the official Dreamina CLI (`dreamina`). No `--ref` → text to image (2K); `--ref` → edit; `--video` → text-to-video without references, or image-to-video from the first reference (default seedance2.0fast, 720p, 5 s; change with `--model`). Submit, polling and download go through `jimeng.mjs` in the same folder, which can also run any Dreamina generator directly. If a model returns `AigcComplianceConfirmationRequired`, the user must authorize it once on the Dreamina website.
+- **codex**: calls Codex's built-in `image_gen`. Always uses the official OpenAI provider (`-c model_provider="openai"`; `--model` defaults to `gpt-6-luna`, `--effort` to `low`), so it still works when the local Codex config points at a custom gateway. Runs in the `workspace-write` sandbox. `--escalate-sandbox` is off unless the user has agreed to it, and even then a retry leaves that sandbox only when the log says the sandbox blocked the write. It snapshots `~/.codex/generated_images` first and rejects any output identical to an older file. See [references/codex.md](references/codex.md).
+- **grok**: `grok-image.mjs` is the whole procedure. No `--ref` → text to image; `--ref` → edit (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio` cannot be auto). The Grok CLI runs in the work directory with sandbox profile `workspace` and permission mode `dontAsk`, and may use only the one imagine tool this job needs (`image_gen`, `image_edit`, or `reference_to_video`) plus `Write`. Shell, web fetch, and web search are denied. Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user rather than changing the setting.
+- **jimeng**: uses the official Dreamina CLI (`dreamina`), which the user installs from the pinned binaries in [SETUP.md](SETUP.md). No `--ref` → text to image (2K); `--ref` → edit; `--video` → text-to-video without references, or image-to-video from the first reference (default seedance2.0fast, 720p, 5 s; change with `--model`). Submit, polling and download go through `jimeng.mjs` in the same folder for those image and video commands. If a model returns `AigcComplianceConfirmationRequired`, the user must authorize it once on the Dreamina website.
 - **gemini**: uses the Antigravity CLI's (`agy`) built-in `generate_image`, called by its image-generator subagent. `--aspect` accepts 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9. Output includes `tool_prompt` and `prompt_verbatim`; `false` means the subagent rewrote the prompt, so mention it when delivering. A long prompt clipped in the session log does not discard an image that was generated; the script reads `transcript_full.jsonl` when Antigravity wrote one.
-- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/imagegen-swarm/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. Renaming the side chat is best-effort: if the rename dialog fails or times out, the script closes it and keeps generating. If Muse asks for approval, the script answers immediately: it clicks "Allow once" only when every request refers to this run's save folder `/home/hatch/workspace/imagegen-swarm`, and otherwise fails with the request text. One process at a time can use the browser. An existing profile in `~/.config/image-gen/muse-browser` is still used until you move it.
-- **lovart**: opens a fresh thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`. See [references/lovart.md](references/lovart.md).
+- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/imagegen-swarm/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. Renaming the side chat is best-effort: if the rename dialog fails or times out, the script closes it and keeps generating. If Muse asks for approval, the script clicks "Allow once" only when that single request is a write of this run's exact output file, or a create of that file's directory, under `/home/hatch/workspace/imagegen-swarm`. Any other request stops the run and returns the request text; ask the user before approving it. One process at a time can use the browser. An existing profile in `~/.config/image-gen/muse-browser` is still used until you move it.
+- **lovart**: `lovart.mjs` runs the readable client shipped at `scripts/lovart_agent.py` (pinned from lovartai/lovart-skill v1.1.1). It opens a fresh thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`. If the client reports a pending confirmation, stop and ask the user; do not confirm a charge yourself. See [references/lovart.md](references/lovart.md).
 - **api**: `provider` is `openai` or `gemini`. openai calls `/v1/images/generations` (`/v1/images/edits` with `image[]` when there are references); point `base_url` at any OpenAI-compatible gateway to use it instead. `gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5` only do 1:1, 3:2 and 2:3; from `gpt-image-2` on, the size is computed from the ratio (about 1.57 MP, multiples of 16, no more than 3:1). gemini calls `/v1beta/interactions` with the ratio and `image_size` in `response_format`. The key comes from an environment variable (`OPENAI_API_KEY` / `GEMINI_API_KEY` by default, change with `key_env`) or a `key_file` with mode 600, never from the config itself. 401/403, 402, exhausted quota or budget shut the line down; a plain 429 backs off. The ledger records finished images at the price you configured; your provider's bill is the real number.
 
 Every engine checks that the returned image is new from this run and differs from the reference images after decoding, and converts non-PNG output to PNG.

@@ -1,7 +1,7 @@
 #!/bin/sh
-# Portable Lovart `lv` wrapper.
-# Copy this file to ~/tools/lovart-skill/lv (the root of the official clone) and chmod +x it.
-# It loads ~/.lovart/env and execs skills/lovart-skill/scripts/agent_skill.py.
+# Optional Lovart wrapper. lovart.mjs runs scripts/lovart_agent.py directly.
+# This file loads ~/.lovart/env and execs that shipped client.
+# Set LOVART_AGENT_SKILL if this wrapper is copied out of the skill folder.
 #
 # The credentials file should be owner-only (mode 600). The mode check uses GNU stat (-c)
 # and, if that is not available, BSD stat (-f), so the same file works on Linux and macOS.
@@ -34,6 +34,13 @@ esac
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 
-ROOT=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-AGENT=${LOVART_AGENT_SKILL:-"$ROOT/skills/lovart-skill/scripts/agent_skill.py"}
+if [ -n "${LOVART_AGENT_SKILL:-}" ]; then
+  AGENT=$LOVART_AGENT_SKILL
+else
+  AGENT=$(CDPATH= cd -- "$(dirname "$0")/../scripts" && pwd)/lovart_agent.py
+fi
+if [ ! -f "$AGENT" ]; then
+  echo "Lovart client not found: $AGENT" >&2
+  exit 1
+fi
 exec python3 "$AGENT" "$@"

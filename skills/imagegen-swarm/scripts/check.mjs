@@ -17,10 +17,10 @@ function turnedOff(engine) {
   return dirs.map((dir) => path.join(dir, engine)).find((file) => existsSync(file)) || null;
 }
 
-function probe(bin, args) {
+function probe(bin, args, env) {
   return new Promise((res) => {
     let out = "";
-    const c = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" && !path.isAbsolute(bin) });
+    const c = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], env: env ? { ...process.env, ...env } : process.env, shell: process.platform === "win32" && !path.isAbsolute(bin) });
     c.on("error", () => res({ code: -1, out }));
     c.stdout.on("data", (d) => (out += d.toString()));
     c.stderr.on("data", (d) => (out += d.toString()));
@@ -100,7 +100,7 @@ async function main() {
     const credit = await probe(dreamina, ["user_credit"]);
     const creditMatch = credit.out.match(/"total_credit"\s*:\s*(\d+)/);
     jimengReady = credit.code === 0 && Boolean(creditMatch);
-    line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install: curl -fsSL https://jimeng.jianying.com/cli | bash, then: dreamina login"));
+    line(jimengReady ? ok(`dreamina logged in — ${creditMatch[1]} credits`) : no("dreamina not installed or not logged in — install the pinned binary in SETUP.md yourself, then: dreamina login"));
   }
 
   line("\n[muse engine — images (Muse cloud computer)]");
@@ -112,12 +112,23 @@ async function main() {
   line(museReady ? ok("muse-image.py --list-chats lists side chats — logged in") : no(`not logged in to Muse; run: python3 ${musePy} --login (needs: pip install playwright && playwright install chromium)`));
 
   line("\n[lovart engine — images]");
+  const { readLovartEnv, LOVART_AGENT } = await import("./lovart.mjs");
   const lv = [process.env.LOVART_LV, path.join(homedir(), "tools", "lovart-skill", "lv")]
     .filter(Boolean).find((p) => existsSync(p));
-  let lovartReady = false;
+  let lovartCmd = null, lovartArgs = null, lovartEnv = null;
   if (lv) {
+    lovartCmd = lv; lovartArgs = ["query-mode"];
     line(ok(`lv wrapper found: ${lv}`));
-    const q = await probe(lv, ["query-mode"]);
+  } else if (existsSync(LOVART_AGENT)) {
+    try {
+      lovartEnv = readLovartEnv();
+      lovartCmd = py; lovartArgs = [LOVART_AGENT, "query-mode"];
+      line(ok(`shipped client: ${LOVART_AGENT}`));
+    } catch (error) { line(no(String(error.message || error))); }
+  }
+  let lovartReady = false;
+  if (lovartCmd && lovartArgs) {
+    const q = await probe(lovartCmd, lovartArgs, lovartEnv);
     let mode = null, unlimited = null;
     try {
       const j = JSON.parse(q.out.slice(q.out.indexOf("{"), q.out.lastIndexOf("}") + 1));
@@ -130,9 +141,8 @@ async function main() {
       line(no("key invalid or unreachable — create one in the Lovart avatar menu → 「Lovart 龙虾」/ OpenClaw for Lovart " +
               `→ Create API Key, then write ~/.lovart/env`));
     }
-  } else {
-    line(no("lv not found — git clone https://github.com/lovartai/lovart-skill ~/tools/lovart-skill, " +
-            "then create ~/.lovart/env (AK/SK from the avatar menu →「Lovart 龙虾」→ Create API Key)"));
+  } else if (!lv && !existsSync(LOVART_AGENT)) {
+    line(no("Lovart client missing — create ~/.lovart/env (see SETUP.md). Do not clone or run a remote installer."));
   }
 
   line("\n[api line — pay per image, last resort]");

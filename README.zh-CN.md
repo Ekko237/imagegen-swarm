@@ -122,7 +122,7 @@ npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 
 ### Windows
 
-把 `skills/imagegen-swarm` 复制到 `%USERPROFILE%\.claude\skills\imagegen-swarm` 或 `%USERPROFILE%\.codex\skills\imagegen-swarm`。Windows 上脚本调用 `python`，也可以设置 `PYTHON`。Pillow 用 `python -m pip install pillow` 安装。即梦的安装需要 Git Bash。各家登录见 [SETUP.md](skills/imagegen-swarm/SETUP.md)（英文）。
+把 `skills/imagegen-swarm` 复制到 `%USERPROFILE%\.claude\skills\imagegen-swarm` 或 `%USERPROFILE%\.codex\skills\imagegen-swarm`。Windows 上脚本调用 `python`，也可以设置 `PYTHON`。Pillow 用 `python -m pip install pillow` 安装。Windows 上的即梦程序是 `dreamina.exe`，固定校验和写在 [SETUP.md](skills/imagegen-swarm/SETUP.md)（英文）。
 
 在技能文件夹里查看哪几家已经能用：
 
