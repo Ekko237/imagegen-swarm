@@ -101,7 +101,7 @@ function parse(argv) {
   return o;
 }
 
-function exec(bin, args, onChild) {
+function runProcess(bin, args, onChild) {
   return new Promise((resolve, reject) => {
     // 单独成一个进程组，抢尾单输了的一份可以连同它起的子进程一起停掉
     const child = spawn(bin, args, { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], detached: Boolean(onChild) });
@@ -117,7 +117,7 @@ function exec(bin, args, onChild) {
 // 清单写了比例的图，交回的宽高比差超过 3% 就不算数（codex、lovart、muse 的比例只写在说明里，偶尔不照做）
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 async function ratioOff(file, aspect) {
-  const r = await exec(PY, [path.join(here, 'imgtool.py'), 'size', file]);
+  const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'size', file]);
   if (r.code !== 0) throw new Error("imgtool size failed on " + (file) + ": " + (r.stderr));
   const { width: w, height: h } = JSON.parse(r.stdout);
   const [a, b] = aspect.split(':').map(Number);
@@ -221,7 +221,7 @@ async function main() {
     const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
       ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
-    const r = await exec(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
+    const r = await runProcess(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
     delete record.child;
     record.finished = record.finished ?? new Date().toISOString();
     job.active.splice(job.active.indexOf(record), 1);

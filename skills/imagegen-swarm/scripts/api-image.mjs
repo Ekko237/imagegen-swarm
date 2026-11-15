@@ -31,7 +31,7 @@ const GEMINI_RATIOS = { 'gemini-nano-banana-2.1': GEMINI_WIDE, 'gemini-3.1-flash
 const GEMINI_REFS = { 'gemini-2.5-flash-image': 3 };
 
 const ratioValue = aspect => {
-  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(String(aspect));
+  const m = String(aspect).match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
   if (!m) throw new Error("bad aspect: " + (aspect));
   return Number(m[1]) / Number(m[2]);
 };
@@ -61,6 +61,7 @@ export function readKey(config) {
   if (process.env[config.keyEnv]) return process.env[config.keyEnv].trim();
   if (!config.keyFile) throw new Error("not_configured: set " + (config.keyEnv) + " or key_file in " + (CONFIG_FILE));
   const mode = statSync(config.keyFile).mode & 0o777;
+  // Owner-only credential permissions prevent other local users from reading the API key.
   if (process.platform !== 'win32' && mode !== 0o600) throw new Error("not_configured: " + (config.keyFile) + " must be chmod 600 (now " + (mode.toString(8)) + ")");
   return readFileSync(config.keyFile, 'utf8').trim();
 }

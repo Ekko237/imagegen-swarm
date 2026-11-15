@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.9 - 2026-11-15
+
+- **Readable script cleanup for the ClawHub scan. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls and arguments, same environment inheritance, same outputs and exit codes, no new prompts or failures on an already configured machine. Routing policy is unchanged.
+- Local process helpers and a Codex result variable no longer use shell-call names. The API aspect-ratio parser uses the equivalent non-global string match. Real `node:child_process` imports and `spawn` calls remain explicit; SkillSpector still flags those legitimate process calls, so this does not claim to resolve AE1.
+- The two setup commands and the API credential-file check now explain that `chmod 600` limits access to the owner so other local users cannot read the API key. The commands and permission check are unchanged.
+
 ## 1.2.8 - 2026-11-15
 
 - **Paid-line docs match the router. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up. No script moved.

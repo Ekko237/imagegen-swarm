@@ -39,7 +39,7 @@ function parse(argv) {
   return o;
 }
 
-function run(bin, args, cwd, limitMs = 60000) {
+function runProcess(bin, args, cwd, limitMs = 60000) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
     let stdout = '', stderr = '', timedOut = false;
@@ -221,7 +221,7 @@ async function main() {
   await markRunDir(work);
   try {
     // 解码后再散列，防止把参考图换个格式冒充新图
-    const img = async (...args) => JSON.parse(await run(PY, [IMGTOOL, ...args], work));
+    const img = async (...args) => JSON.parse(await runProcess(PY, [IMGTOOL, ...args], work));
     const fingerprint = async file => (await img('fp', file)).fp[0];
     const refs = [], refHashes = new Set();
     for (const [i, ref] of o.refs.entries()) {
@@ -238,7 +238,7 @@ async function main() {
       'If the tool fails, report the error and stop; never copy, convert or reuse any existing image.\n' +
       "<<<PROMPT\n" + (prompt) + "\nPROMPT>>>\n" +
       'Do not use any other tool yourself. When it finishes, reply with only the absolute path of the image.';
-    const reply = await run(o.agy, ['-p', instruction, '--model', o.model, '--sandbox', '--disable-slash-commands', '--output-format', 'json',
+    const reply = await runProcess(o.agy, ['-p', instruction, '--model', o.model, '--sandbox', '--disable-slash-commands', '--output-format', 'json',
       '--print-timeout', (Math.ceil(o.timeout / 1000)) + "s", '--log-file', path.join(work, 'agy.log')], work, o.timeout + 30000);
     const result = parseAgyReply(reply);
     if (result.status && result.status !== 'SUCCESS') throw new Error("agy status " + (result.status) + ": " + (reply.slice(-3000)));

@@ -159,8 +159,8 @@ async function isPng(file) {
   } catch { return false; }
 }
 
-function sandboxBlocked(run) {
-  const text = (run.stderr || "") + "\n" + (run.stdout || "").toLowerCase();
+function sandboxBlocked(processResult) {
+  const text = (processResult.stderr || "") + "\n" + (processResult.stdout || "").toLowerCase();
   if (text.includes("operation not permitted")) return true;
   return text.includes("sandbox") && /block|denied|not permitted|permission|eacces|eperm/.test(text);
 }
@@ -202,10 +202,10 @@ async function main() {
   const outPreExisted = existsSync(o.out);
   for (let attempt = 1; attempt <= o.retries + 1; attempt++) {
     if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + "/" + (o.retries + 1) + " (sandbox=" + (o.sandbox) + ") -> " + (o.out) + "\n");
-    const run = await runCodexExec(codex, instruction, o, outDir);
-    await writeFile(path.join(logDir, "attempt-" + (attempt) + ".log"), run.stdout + "\n--- stderr ---\n" + run.stderr).catch(() => {});
-    if (run.timedOut) { lastErr = "timeout after " + (o.timeoutMs) + "ms"; continue; }
-    if (run.code === -1 || run.stderr.includes("not found: codex") || run.stderr.includes("command not found")) fail("codex_not_installed", "codex could not be launched: " + (run.stderr.slice(0, 300)));
+    const processResult = await runCodexExec(codex, instruction, o, outDir);
+    await writeFile(path.join(logDir, "attempt-" + (attempt) + ".log"), processResult.stdout + "\n--- stderr ---\n" + processResult.stderr).catch(() => {});
+    if (processResult.timedOut) { lastErr = "timeout after " + (o.timeoutMs) + "ms"; continue; }
+    if (processResult.code === -1 || processResult.stderr.includes("not found: codex") || processResult.stderr.includes("command not found")) fail("codex_not_installed", "codex could not be launched: " + (processResult.stderr.slice(0, 300)));
     if (existsSync(o.out) && await isPng(o.out)) {
       const stale = await findStaleSource(o.out, preExisting);
       if (stale) {
@@ -222,9 +222,9 @@ async function main() {
       else process.stdout.write("OK  codex  " + (o.out) + "  (" + (s.size) + " bytes, " + (result.elapsed_seconds) + "s, attempt " + (attempt) + ")\n");
       process.exit(0);
     }
-    lastErr = run.code !== 0 ? "codex exec exited " + (run.code) + ": " + (run.stderr.slice(0, 200)) : "no valid PNG at " + (o.out) + " (agent may not have called image_gen, or sandbox blocked the write)";
+    lastErr = processResult.code !== 0 ? "codex exec exited " + (processResult.code) + ": " + (processResult.stderr.slice(0, 200)) : "no valid PNG at " + (o.out) + " (agent may not have called image_gen, or sandbox blocked the write)";
     if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + " failed: " + (lastErr) + "\n");
-    const blocked = sandboxBlocked(run);
+    const blocked = sandboxBlocked(processResult);
     const approved = userApprovedSandboxWiden();
     if (sandboxMayWiden({ escalateSandbox: o.escalateSandbox, approved, blocked, sandbox: o.sandbox })) {
       o.sandbox = "danger-full-access";

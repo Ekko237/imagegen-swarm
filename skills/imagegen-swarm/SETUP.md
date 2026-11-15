@@ -77,7 +77,8 @@ in chat or git:
 
 Run this only the first time you set up Lovart. It stores the two keys in the file
 `$HOME/.lovart/env` and sets that file to mode 600. The parent directory exists only so this
-file has a place to live. Do not run it again on later generations.
+file has a place to live. `chmod 600` restricts the credential file to its owner so other local
+users cannot read the API keys. Do not run it again on later generations.
 
 ```bash
 umask 077
@@ -153,7 +154,8 @@ EOF
 | `lanes` | lane count, default 4 |
 | `ratios` / `max_refs` | optional overrides when your model supports different ratios or reference counts than the built-in table |
 
-To keep the key in a file:
+To keep the key in a file, `chmod 600` restricts it to its owner so other local users cannot read
+the API key:
 
 ```bash
 umask 077 && printf '%s' 'your-key' > "$HOME/.config/imagegen-swarm/api-key" && chmod 600 "$HOME/.config/imagegen-swarm/api-key"

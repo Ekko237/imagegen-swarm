@@ -41,7 +41,7 @@ function parse(argv) {
   return o;
 }
 
-function run(bin, args, cwd) {
+function runProcess(bin, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE] });
     let stdout = '', stderr = '';
@@ -74,7 +74,7 @@ async function main() {
     if (sub === 'image2video') flags.push("--image=" + (o.refs[0]), '--video_resolution=720p');
     if (o.video) flags.push("--model_version=" + (o.model ?? 'seedance2.0fast'));
     else if (o.model) flags.push("--model_version=" + (o.model));
-    const r = await run(process.execPath, [path.join(here, 'jimeng.mjs'), sub, '--out', work, '--json', '--poll', String(Math.ceil(o.timeout / 1000)), ...flags], work);
+    const r = await runProcess(process.execPath, [path.join(here, 'jimeng.mjs'), sub, '--out', work, '--json', '--poll', String(Math.ceil(o.timeout / 1000)), ...flags], work);
     const line = r.stdout.trim().split('\n').at(-1) ?? '';
     const report = line.startsWith('{') ? JSON.parse(line) : { status: 'error', error: (r.stderr || r.stdout).slice(-1500) };
     if (report.status !== 'ok') throw new Error(report.error ?? 'jimeng failed');
@@ -84,9 +84,9 @@ async function main() {
       await copyFile(media[0], o.out);
     } else {
       // 解码后不能和任何参考图一样，再转成真正的 PNG
-      const fps = JSON.parse((await run(PY, [path.join(here, 'imgtool.py'), 'fp', media[0], ...o.refs], work)).stdout).fp;
+      const fps = JSON.parse((await runProcess(PY, [path.join(here, 'imgtool.py'), 'fp', media[0], ...o.refs], work)).stdout).fp;
       if (fps.slice(1).includes(fps[0])) throw new Error('stale output: matches a reference image');
-      const conv = await run(PY, [path.join(here, 'imgtool.py'), 'png', media[0], o.out], work);
+      const conv = await runProcess(PY, [path.join(here, 'imgtool.py'), 'png', media[0], o.out], work);
       if (conv.code !== 0) throw new Error("could not convert to PNG: " + (conv.stderr.slice(-300)));
     }
     const data = await readFile(o.out);

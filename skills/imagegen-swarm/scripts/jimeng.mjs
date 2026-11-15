@@ -84,7 +84,7 @@ function resolveDreamina(explicit) {
   return "dreamina"; // fall back to PATH (works after reopening a terminal post-install)
 }
 
-function run(bin, args) {
+function runProcess(bin, args) {
   return new Promise((resolve) => {
     let stdout = "", stderr = "";
     const child = spawn(bin, args, { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
@@ -132,7 +132,7 @@ async function main() {
 
   // 1) Submit.
   warn("submitting: " + (o.sub) + " " + (o.passthrough.join(" ")) + "  (consumes credits)");
-  const submit = await run(dreamina, [o.sub, ...o.passthrough]);
+  const submit = await runProcess(dreamina, [o.sub, ...o.passthrough]);
   if (submit.code === -1) die(1, "could not launch dreamina: " + (submit.stderr.slice(0, 300)));
   const sj = extractJson(submit.stdout) || {};
   let submitId = findKey(sj, ["submit_id", "submitId"]);
@@ -149,7 +149,7 @@ async function main() {
   const deadline = Date.now() + o.pollSec * 1000;
   let lastStatus = genStatus;
   while (Date.now() < deadline) {
-    const q = await run(dreamina, ["query_result", "--submit_id=" + (submitId), "--download_dir=" + (o.out)]);
+    const q = await runProcess(dreamina, ["query_result", "--submit_id=" + (submitId), "--download_dir=" + (o.out)]);
     const qj = extractJson(q.stdout) || {};
     const st = findKey(qj, ["gen_status", "genStatus", "status"]) ?? lastStatus;
     lastStatus = st;

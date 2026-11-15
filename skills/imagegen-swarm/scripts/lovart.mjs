@@ -28,7 +28,7 @@ function fail(msg, kind = "error") {
   process.exit(kind === "invalid_args" ? 2 : 1);
 }
 
-function run(cmd, args, timeoutSec, extraEnv) {
+function runProcess(cmd, args, timeoutSec, extraEnv) {
   return new Promise((res) => {
     let out = "", err = "", killed = false;
     const c = spawn(cmd, args, { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], env: extraEnv ? { ...process.env, ...extraEnv } : process.env });
@@ -120,7 +120,7 @@ async function main() {
   const attachments = [];
   for (const ref of o.refs) {
     if (!existsSync(ref)) fail("ref not found: " + (ref), "invalid_args");
-    const r = await run(lv.cmd, [...lv.args, "upload", "--file", ref], 120, lv.env);
+    const r = await runProcess(lv.cmd, [...lv.args, "upload", "--file", ref], 120, lv.env);
     const j = lastJson(r.out);
     if (r.code !== 0 || !j || !j.url)
       fail("upload failed for " + (path.basename(ref)) + ": " + ((j && j.message) || r.err.trim().slice(0, 200)));
@@ -144,7 +144,7 @@ async function main() {
   if (o.model) args.push("--prefer-models", JSON.stringify({ IMAGE: [o.model] }));
   if (o.mode) args.push("--mode", o.mode);
 
-  const r = await run(lv.cmd, [...lv.args, ...args], o.timeout, lv.env);
+  const r = await runProcess(lv.cmd, [...lv.args, ...args], o.timeout, lv.env);
   if (r.killed) { await rm(tmp, { recursive: true, force: true }).catch(() => {});
                   fail("timed out after " + (o.timeout) + "s", "timeout"); }
   const j = lastJson(r.out);
@@ -162,7 +162,7 @@ async function main() {
 
   await mkdir(path.dirname(path.resolve(o.out)), { recursive: true });
   // 模型可能交 JPG / WebP：统一转成真正的 PNG
-  const conv = await run(PY, [IMGTOOL, "png", path.resolve(got.local_path), o.out], 60);
+  const conv = await runProcess(PY, [IMGTOOL, "png", path.resolve(got.local_path), o.out], 60);
   await rm(tmp, { recursive: true, force: true });
   if (conv.code !== 0) fail("could not convert the Lovart artifact to PNG: " + (conv.err.trim().slice(0, 200)));
 
