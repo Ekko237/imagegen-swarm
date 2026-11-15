@@ -1,12 +1,39 @@
 # imagegen-swarm setup
 
-This file is in the skill folder. For a plain-folder install, copy or symlink this folder to `~/.claude/skills/imagegen-swarm/` for Claude Code, or `~/.codex/skills/imagegen-swarm/` for Codex. The installed folder must be named `imagegen-swarm`. An older copy installed as `image-gen` can be moved to `imagegen-swarm`. Plugin commands are in the repository README. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its own folder, so never bundle those folders when you share the skill. Set up only the engines you want.
+This file is in the skill folder. For a plain-folder install, copy or symlink this folder to the
+Claude Code skills directory, or the Codex skills directory, and name the folder `imagegen-swarm`.
+An older copy installed as `image-gen` can be moved to `imagegen-swarm`. Plugin commands are in the
+repository README. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`)
+on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine
+also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its
+own folder, so never bundle those folders when you share the skill. Set up only the engines you
+want.
 
-These are prerequisites for you to run. The agent runs the scripts in this folder and does not download or execute installers. If a step below is not done, the agent should ask you to do it.
+These are prerequisites for you to run. The agent runs the scripts in this folder and does not
+download or execute installers. If a step below is not done, the agent should ask you to do it. The
+`mkdir` commands in this file are first-time setup. Run each one only when you set up that engine.
+Generation does not create these directories.
+
+## What setup stores
+
+| Path | What | Why |
+|---|---|---|
+| Codex home, file `auth.json` | Login created by `codex login`. The readiness check only tests that the file exists | Know whether Codex is logged in |
+| Codex home, directory `generated_images` | Images Codex already wrote. This skill lists and hashes that directory only | Reject an older image reused after a failed call |
+| `~/.grok` | Grok CLI login | Grok image and video |
+| `~/.gemini` | Antigravity CLI login | Gemini image |
+| `~/.dreamina_cli` | Dreamina CLI login | Jimeng image and video |
+| `~/.config/imagegen-swarm/muse-browser` | Playwright profile. Created by `scripts/muse-image.py --login` | Stay signed in to Muse |
+| `~/.lovart/env` | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL`. Mode 600 | Sign Lovart requests. Other lines are ignored |
+| `~/.lovart/state.json` | Project and thread ids, only if `~/.lovart` already exists | Resume a Lovart project |
+| `~/.config/imagegen-swarm/api.json` | Provider, model, price, budgets. No API key | Paid last resort |
+| `~/.config/imagegen-swarm/api-key` | API key, mode 600, only if you choose a key file | Paid last resort |
+| `~/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per finished paid image | Monthly budget |
+| `~/.config/imagegen-swarm/engine-off/<engine>` | Empty marker | Pause that engine |
 
 | Engine | Install and log in | Login lives in |
 |---|---|---|
-| codex | Install the Codex CLI (`npm i -g @openai/codex`) or Codex.app, then `codex login`. The script looks for `--codex` / `CODEX_BIN`, then PATH, then `/Applications/Codex.app/Contents/Resources/codex`, `~/Applications`, and on Windows `~/AppData/Local/OpenAI/Codex/bin/*/codex.exe` | `~/.codex` |
+| codex | Install the Codex CLI (`npm i -g @openai/codex`) or Codex.app, then `codex login`. The script looks for `--codex` / `CODEX_BIN`, then PATH, then the Codex.app binary, and on Windows the Codex `codex.exe` under the user profile | Codex home (`CODEX_HOME`). Generation reads only `generated_images` |
 | grok | Install the Grok Build CLI and log in; `grok models` should list models | `~/.grok` |
 | gemini | Install the Antigravity CLI (default `~/.local/bin/agy`, or set `AGY_BIN` / `--agy`) and log in; `agy models` should list Gemini models | `~/.gemini` |
 | jimeng | Install the pinned Dreamina binary below, reopen the terminal, then `dreamina login` (scan with the Douyin app); `dreamina user_credit` should show your credits. The script looks in `DREAMINA_INSTALL_DIR`, `~/bin`, `~/.local/bin`, then PATH | `~/.dreamina_cli` |
@@ -15,7 +42,9 @@ These are prerequisites for you to run. The agent runs the scripts in this folde
 
 ## Jimeng binary
 
-The Dreamina CLI is a binary you install yourself. Publisher `version.json` reports version **1.4.22** (release date 2026-10-28). The download names are not versioned, so the sha256 is the pin. If the checksum does not match, stop and do not install the file.
+The Dreamina CLI is a binary you install yourself. Publisher `version.json` reports version
+**1.4.22** (release date 2026-10-28). The download names are not versioned, so the sha256 is the
+pin. If the checksum does not match, stop and do not install the file.
 
 | Platform | File | sha256 |
 |---|---|---|
@@ -25,15 +54,29 @@ The Dreamina CLI is a binary you install yourself. Publisher `version.json` repo
 | Linux arm64 | `dreamina_cli_linux_arm64` | `55d086f054464e79f4099e50ce6c51d5e920ccfb59a24a154f4cfc4f8565c378` |
 | Windows x64 | `dreamina_cli_windows_amd64.exe` | `27f92ce763035af10e41b31f4c161e8349d40e5fdaa90c5fa98e7869da5d492d` |
 
-Base URL: `https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/`
+Base URL:
+`https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/`
 
-Download one file, then compare the checksum. On macOS or Linux, `sha256sum` (or `shasum -a 256`) must print the hash in the table. Move the file to `~/.local/bin/dreamina` and mark it executable. On Windows, move `dreamina_cli_windows_amd64.exe` to `%USERPROFILE%\bin\dreamina.exe`. Reopen the terminal, run `dreamina login`, then `dreamina user_credit`.
+Download one file, then compare the checksum. On macOS or Linux, `sha256sum` (or `shasum -a 256`)
+must print the hash in the table. Move the file to `~/.local/bin/dreamina` and mark it executable.
+On Windows, move `dreamina_cli_windows_amd64.exe` to `%USERPROFILE%\bin\dreamina.exe`. Reopen the
+terminal, run `dreamina login`, then `dreamina user_credit`.
 
 ## Lovart
 
-The Lovart client is already in this folder at `scripts/lovart_agent.py`. It is the readable v1.1.1 client from [lovartai/lovart-skill](https://github.com/lovartai/lovart-skill/releases/tag/v1.1.1) (zip sha256 `d96eae1b382ba81829733f2c63e8520b0b7fae9acb77f0df23ad95ca3cdac0cd`). `lovart.mjs` runs that file. You do not need another copy.
+The Lovart client is already in this folder. `scripts/lovart_agent.py` is the command entry.
+`scripts/lovart_client.py` is the HTTP client and `scripts/lovart_state.py` is the local project
+list. Together they are the readable v1.1.1 client from
+[lovartai/lovart-skill](https://github.com/lovartai/lovart-skill/releases/tag/v1.1.1) (zip sha256
+`d96eae1b382ba81829733f2c63e8520b0b7fae9acb77f0df23ad95ca3cdac0cd`), split so each file can be
+reviewed. `scripts/lovart.mjs` runs the entry file. You do not need another copy.
 
-On lovart.ai open the avatar menu → "OpenClaw for Lovart" → Create API Key → Copy. The entry is not under account settings, and the secret key is shown only once. Store it in a credentials file, never in chat or git:
+On lovart.ai open the avatar menu → "OpenClaw for Lovart" → Create API Key → Copy. The entry is not
+under account settings, and the secret key is shown only once. Store it in a credentials file, never
+in chat or git:
+
+Run this only the first time you set up Lovart. It creates `~/.lovart` and the credentials file. Do
+not run it again on later generations.
 
 ```bash
 mkdir -p ~/.lovart && umask 077 && cat > ~/.lovart/env <<'EOF'
@@ -43,19 +86,34 @@ EOF
 chmod 600 ~/.lovart/env
 ```
 
-`lovart.mjs` reads that file as text and checks that its mode is owner-only. It does not execute the file. A mode such as `644` is refused; `600` is accepted. If the mode cannot be read, the client still runs, so a real API error such as no credits is not replaced by a permissions failure. The optional wrapper applies the same rule with `stat -c` on Linux and `stat -f` on macOS.
+`scripts/lovart.mjs` reads that file as text and checks that its mode is owner-only. It keeps only
+`LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and `LOVART_BASE_URL`. It does not execute the file. A
+mode such as `644` is refused; `600` is accepted. If the mode cannot be read, the client still runs,
+so a real API error such as no credits is not replaced by a permissions failure. The optional
+wrapper applies the same rule with `stat -c` on Linux and `stat -f` on macOS, and it also copies
+only those three names. It does not source the file.
 
-An optional wrapper is `references/lovart-lv.example.sh`. It runs `scripts/lovart_agent.py`. If you copy the wrapper out of this folder, set `LOVART_AGENT_SKILL` to the copy of `scripts/lovart_agent.py` inside the skill. Check the key with the shipped client:
+An optional wrapper is `references/lovart-lv.example.sh`. It runs `scripts/lovart_agent.py`. If you
+copy the wrapper out of this folder, set `LOVART_AGENT_SKILL` to the copy of
+`scripts/lovart_agent.py` inside the skill. Check the key with the shipped client:
 
 ```bash
 python3 scripts/lovart_agent.py query-mode
 ```
 
-`query-mode` returning JSON means the client and the key work. It does not prove the account has credits.
+`query-mode` returning JSON means the client and the key work. It does not prove the account has
+credits.
 
 ## Pay-per-image API line (optional)
 
-Keeps generating when every subscription runs out at once; you pay only for what you use. Off unless configured. Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then write the config:
+Keeps generating when every subscription runs out at once. You pay `price_per_image` USD for each
+finished image, and the line stops before `budget_per_batch` or `budget_per_month`. Off unless you
+configure it. Creating this file is your consent to that spend for images in a job list that no
+subscription engine can take. The agent must ask you before it creates this file, changes the
+budgets, or generates paid images you did not ask for.
+
+Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then write
+the config. Run the `mkdir` only the first time:
 
 ```bash
 mkdir -p ~/.config/imagegen-swarm && cat > ~/.config/imagegen-swarm/api.json <<'EOF'
@@ -90,7 +148,8 @@ To keep the key in a file:
 umask 077 && printf '%s' 'your-key' > ~/.config/imagegen-swarm/api-key && chmod 600 ~/.config/imagegen-swarm/api-key
 ```
 
-Then add `"key_file": "~/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is `~/.config/imagegen-swarm/api-spend.jsonl`, one line per image.
+Then add `"key_file": "~/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is
+`~/.config/imagegen-swarm/api-spend.jsonl`, one line per image.
 
 ## Check
 

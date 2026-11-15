@@ -4,6 +4,7 @@ import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { markRunDir } from './safety.mjs';
 import { isInvokedDirectly } from './direct.mjs';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
@@ -216,6 +217,7 @@ async function main() {
   if (!prompt) throw new Error('empty prompt');
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.gemini-image-${Date.now()}-`));
+  await markRunDir(work);
   try {
     // 解码后再散列，防止把参考图换个格式冒充新图
     const img = async (...args) => JSON.parse(await run(PY, [IMGTOOL, ...args], work));

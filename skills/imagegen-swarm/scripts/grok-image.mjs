@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readdir, readFile, copyFile, rm, stat } from 'node:fs/p
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { markRunDir } from './safety.mjs';
 
 function parse(argv) {
   const o = { ratio: '1:1', video: false, timeout: 600000 };
@@ -76,6 +77,7 @@ async function main() {
   if (!prompt.trim()) throw new Error('empty prompt');
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.grok-image-${Date.now()}-`));
+  await markRunDir(work);
   try {
     // 图片解码后再散列，防止把旧 JPEG 转成 PNG 冒充新图；视频按原文件散列。一次进程算完一批图
     const isVideo = file => /\.(mp4|mov)$/i.test(file);

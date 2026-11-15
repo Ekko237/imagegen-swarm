@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -6,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
 import { engineSpec, loadApiConfig, readLedger } from './api-image.mjs';
+import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
 
 // 抢活：一批图共用一个队列，所有引擎同时开工，每个引擎开几条通道，哪条通道空了就接下一张它做得了的活。
 // 队列空了以后抢尾单：正在做的那家已经明显超过自己的通常耗时（中位数的 1.5 倍）才允许再做一份，
@@ -125,7 +127,8 @@ function parse(argv) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') {
       console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse,api] [--lanes gemini=2,muse=1] [--tries 3]\n' +
-        'api 是按次付费的最后一档，写了 ~/.config/image-gen/api.json 才有\n' +
+        'api is the pay-per-image last resort. It runs only after the user sets it up (see SETUP.md).\n' +
+        'It spends price_per_image on images in this job list that no subscription engine can take, and stops at the budgets in that setup.\n' +
         'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）');
       process.exit(0);
     }
@@ -140,7 +143,7 @@ function parse(argv) {
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
   for (const e of o.engines) {
-    if (e === 'api' && !API) throw new Error('api engine is not configured: write ~/.config/image-gen/api.json (see SETUP.md)');
+    if (e === 'api' && !API) throw new Error('api engine is not configured. The user turns it on during setup (see SETUP.md). This command does not create that config.');
     if (!ENGINES[e]) throw new Error(`unknown engine: ${e}`);
   }
   o.engines = o.engines.filter(e => !OFF.includes(e));
@@ -179,6 +182,9 @@ function untry(job, engine) {
 }
 
 async function main() {
+  if (!process.env.IMAGE_GEN_RUN_ID) process.env.IMAGE_GEN_RUN_ID = randomBytes(8).toString('hex');
+  const runId = process.env.IMAGE_GEN_RUN_ID;
+  const ownedNames = new Set();
   const o = parse(process.argv.slice(2));
   const jobs = JSON.parse(await readFile(o.jobs, 'utf8'));
   const base = path.dirname(o.jobs);
@@ -254,9 +260,11 @@ async function main() {
     attempts.push(record);
     // 先写临时文件，赢了才改成正式文件名
     const temp = path.join(o.out, `.attempt-${job.id}-${engine}-${serial++}${path.extname(job.file)}`);
+    ownedNames.add(path.basename(temp));
     const script = path.join(here, e.script);
     // Muse 不能用信号停（它的浏览器库收到中断会卡住），改用取消文件
     record.cancelFile = engine === 'muse' ? `${temp}.cancel` : null;
+    if (record.cancelFile) ownedNames.add(path.basename(record.cancelFile));
     const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
       ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
@@ -389,8 +397,19 @@ async function main() {
   await Promise.all(lanes);
   settleOrphans();
   for (const job of queue.splice(0)) failed.push({ id: job.id, tried: job.tried, reason: job.reason ?? '所有通道都已退出' });
-  // 被停掉的那几份留下的工作目录一并清掉
-  for (const name of readdirSync(o.out)) if (/^\.(attempt-|codex-img-|gemini-image-|grok-image-|jimeng-image-|muse-image-|lovart-|api-image-)/.test(name)) await rm(path.join(o.out, name), { recursive: true, force: true });
+  // 只删本轮创建的临时文件，以及带本轮标记的工作目录。别的轮次留下的目录不动。
+  for (const name of readdirSync(o.out)) {
+    const target = path.join(o.out, name);
+    let info;
+    try { info = await stat(target); } catch { continue; }
+    let marker = '';
+    if (info.isDirectory()) {
+      try { marker = (await readFile(path.join(target, RUN_MARKER_FILE), 'utf8')).trim(); } catch { marker = ''; }
+    }
+    if (removableWorkPath({ name, isFile: info.isFile(), marker, runId, ownedNames })) {
+      await rm(target, { recursive: true, force: true });
+    }
+  }
   const byEngine = Object.fromEntries(o.engines.map(engine => [engine, done.filter(d => d.engine === engine).length]));
   const last = done.filter(d => d.finished).map(d => Date.parse(d.finished));
   const paidImages = done.filter(d => d.engine === 'api').length;

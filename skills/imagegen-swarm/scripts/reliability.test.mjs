@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { childEnv } from './scoped-env.mjs';
+import { removableWorkPath, sandboxMayWiden } from './safety.mjs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -232,7 +234,7 @@ check('steal threshold uses the median, not the slowest sample', () => {
 
 function run(cmd, args, env, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, { cwd, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
@@ -491,6 +493,45 @@ await checkAsync('images stopped by the paid budget say so in their failure reas
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+check('child processes receive named keys and not the rest of the environment', () => {
+  const source = { PATH: '/usr/bin', HOME: '/tmp/home', UNRELATED_SECRET: 'nope', IMAGE_GEN_RUN_ID: 'from-parent' };
+  const env = childEnv({ IMAGE_GEN_RUN_ID: 'run-1' }, source);
+  assert.equal(env.UNRELATED_SECRET, undefined);
+  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.HOME, '/tmp/home');
+  assert.equal(env.IMAGE_GEN_RUN_ID, 'run-1');
+});
+
+check('batch cleanup deletes only this run, and only marked directories', () => {
+  const runId = 'run-a';
+  assert.equal(removableWorkPath({ name: '.gemini-image-1', isFile: false, marker: runId, runId, ownedNames: new Set() }), true);
+  assert.equal(removableWorkPath({ name: '.gemini-image-1', isFile: false, marker: 'run-b', runId, ownedNames: new Set() }), false);
+  assert.equal(removableWorkPath({ name: '.gemini-image-1', isFile: false, marker: '', runId, ownedNames: new Set() }), false);
+  assert.equal(removableWorkPath({ name: '.attempt-cat-grok-1.png', isFile: true, marker: '', runId, ownedNames: new Set(['.attempt-cat-grok-1.png']) }), true);
+  assert.equal(removableWorkPath({ name: '.attempt-old.png', isFile: true, marker: '', runId, ownedNames: new Set() }), false);
+  assert.equal(removableWorkPath({ name: 'cat.png', isFile: true, marker: runId, runId, ownedNames: new Set(['cat.png']) }), false);
+});
+
+check('sandbox retry stays in workspace-write until the user approves a wider sandbox', () => {
+  const blocked = { escalateSandbox: true, approved: false, blocked: true, sandbox: 'workspace-write' };
+  assert.equal(sandboxMayWiden(blocked), false);
+  assert.equal(sandboxMayWiden({ ...blocked, approved: true }), true);
+  assert.equal(sandboxMayWiden({ ...blocked, approved: true, blocked: false }), false);
+  assert.equal(sandboxMayWiden({ escalateSandbox: false, approved: true, blocked: true, sandbox: 'workspace-write' }), false);
+});
+
+await checkAsync('dreamina wrapper rejects commands outside image generation', async () => {
+  const r = await run(process.execPath, [path.join(here, 'jimeng.mjs'), 'login']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stdout + r.stderr, /image generation/);
+});
+
+await checkAsync('lovart client still starts from the split entry', async () => {
+  const r = await run(process.env.PYTHON ?? 'python3', [path.join(here, 'lovart_agent.py'), '--help']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /query-mode/);
 });
 
 if (failed) {
