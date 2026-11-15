@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.10 - 2026-11-15
+
+- **Reject unchanged output PNGs in codex-image (SDI-1).** The output path is snapshotted before attempts, including size, mtime and SHA-256. Byte-identical content is stale even if its mtime changes; retries and the existing JSON failure shape are preserved. Pre-existing user files are not deleted, and the generated-images stale-source check remains in place.
+- `node scripts/batch.mjs` behavior is unchanged on configured machines except that a genuinely stale-file false success from codex-image now correctly fails. Provider arguments, environment inheritance, sandbox escalation, logging and success output format are unchanged.
+- Hermetic fake-Codex tests cover unchanged outputs after both failed and successful execs, mtime-only changes, newly created PNGs and replacement PNGs. ClawHub bundles exclude Python bytecode caches.
+
 ## 1.2.9 - 2026-11-15
 
 - **Readable script cleanup for the ClawHub scan. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls and arguments, same environment inheritance, same outputs and exit codes, no new prompts or failures on an already configured machine. Routing policy is unchanged.
