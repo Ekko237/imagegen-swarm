@@ -18,7 +18,9 @@ from playwright.sync_api import sync_playwright
 # Muse（muse.ai）没有接口，全部走专用的无头浏览器：一次打开浏览器，新开侧聊天发任务、等它画完、从云电脑文件库下载、删掉侧聊天。
 # 网页结构（改版后先查这里）：输入框 textarea[aria-label="Message"]，附件 input[type=file]，发送 button[aria-label="Send"]，
 # 都在 [data-hatch-composer-chrome] 里；消息 [data-message-item]（data-message-role=user|assistant）；工作中有 button「Stop」或 [aria-busy=true]；
-# 图片附件卡片的名字在缩略图 img 的 alt 上；侧聊天行 [data-testid=hatch-thread-row]（第 0 行是主聊天），右键菜单 Rename / Delete；
+# 图片附件卡片的名字在缩略图 img 的 alt 上；侧聊天行优先 [data-testid=hatch-thread-row]（第 0 行是主聊天）。
+# 当前行的标记可能在行上，也可能在内部链接上（aria-current=page|true、aria-selected、data-active），
+# 或者只在 href / data-thread-id 一类属性里带 /thread/<uuid>。对不上这一条侧聊天就不动它。右键菜单 Rename / Delete；
 # 待确认在 button「Approvals」标签页；文件库 /library/files，根目录是云电脑的 /home/hatch，下载按钮叫「Download」。
 BASE = "https://muse.ai"
 
@@ -39,6 +41,8 @@ REMOTE_DIR = "/home/hatch/workspace/imagegen-swarm"
 RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9")
 THREAD_RE = re.compile(r"/thread/([0-9a-f-]{36})")
 IDLE_SECONDS = 8
+# 打开 /thread/<id> 之后侧栏可能还没画完当前行。只等一小会儿，对不上就放弃改名，不拖住出图。
+ROW_WAIT_SECONDS = 5
 
 
 @contextmanager
@@ -129,11 +133,129 @@ def side_chats(page):
     return result
 
 
+# 在侧聊天面板里收集候选行。优先认 hatch-thread-row；没有这个 testid 时再退到链接、data 属性和 listitem。
+# 每行记下：可见文字、行内 href/data 属性里的线程编号、以及行或内部控件是不是当前项。
+SIDE_ROWS_JS = r'''() => {
+    const nav = document.querySelector('nav[aria-label="Side chats"]') || document.body;
+    document.querySelectorAll('[data-imagegen-row]').forEach(el => el.removeAttribute('data-imagegen-row'));
+    const selectors = [
+        '[data-testid="hatch-thread-row"]',
+        '[data-testid="thread-row"]',
+        '[data-thread-id]',
+        '[data-session-id]',
+        '[data-chat-id]',
+        'a[href*="/thread/"]',
+        '[role="listitem"]',
+        '[role="option"]',
+        '[role="row"]',
+        '[class*="thread-row"]',
+        '[class*="chat-row"]',
+    ];
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const hrefRe = /\/thread\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/ig;
+    const idAttrs = ['data-thread-id', 'data-session-id', 'data-chat-id', 'data-threadid', 'data-thread'];
+    function addIds(ids, value) {
+        if (!value) return;
+        const text = String(value);
+        hrefRe.lastIndex = 0;
+        let matched = false;
+        let found;
+        while ((found = hrefRe.exec(text))) {
+            ids.add(found[1].toLowerCase());
+            matched = true;
+        }
+        if (!matched && uuid.test(text.trim())) ids.add(text.trim().toLowerCase());
+    }
+    function idsOf(el) {
+        const ids = new Set();
+        addIds(ids, el.getAttribute && el.getAttribute('href'));
+        for (const name of idAttrs) addIds(ids, el.getAttribute && el.getAttribute(name));
+        const nested = 'a[href*="/thread/"], ' + idAttrs.map(name => `[${name}]`).join(', ');
+        for (const node of el.querySelectorAll(nested)) {
+            addIds(ids, node.getAttribute('href'));
+            for (const name of idAttrs) addIds(ids, node.getAttribute(name));
+        }
+        return [...ids];
+    }
+    function isCurrent(el) {
+        const nodes = [el, ...el.querySelectorAll('[aria-current], [aria-selected], [data-active], [data-state]')];
+        return nodes.some(node => {
+            const current = (node.getAttribute('aria-current') || '').toLowerCase();
+            if (current === 'page' || current === 'true') return true;
+            if ((node.getAttribute('aria-selected') || '').toLowerCase() === 'true') return true;
+            if ((node.getAttribute('data-active') || '').toLowerCase() === 'true') return true;
+            const state = (node.getAttribute('data-state') || '').toLowerCase();
+            return state === 'active' || state === 'selected' || state === 'current';
+        });
+    }
+    function rowOf(el) {
+        return el.closest('[data-testid="hatch-thread-row"], [data-testid="thread-row"], [role="listitem"], [role="option"], [role="row"], li, [class*="thread-row"], [class*="chat-row"]') || el;
+    }
+    const seen = new Set();
+    const rows = [];
+    for (const el of nav.querySelectorAll(selectors.join(','))) {
+        const row = rowOf(el);
+        if (!nav.contains(row) || seen.has(row)) continue;
+        seen.add(row);
+        row.setAttribute('data-imagegen-row', String(rows.length));
+        rows.push({text: (row.innerText || '').trim(), ids: idsOf(row), current: isCurrent(row)});
+    }
+    return rows;
+}'''
+
+
+def _row_ids(row):
+    return {str(item).lower() for item in (row.get("ids") or []) if item}
+
+
+def _is_main_chat(row):
+    return "Main chat" in (row.get("text") or "")
+
+
+def choose_side_row(rows, chat):
+    # 只返回能证明是这一条侧聊天的行。主聊天、别的线程、或好几行都像，一律不选。
+    wanted = (chat or "").strip().lower()
+    if not wanted or not rows:
+        return None
+    owned = [index for index, row in enumerate(rows) if _row_ids(row) == {wanted} and not _is_main_chat(row)]
+    if len(owned) == 1:
+        return owned[0]
+    if len(owned) > 1:
+        current = [index for index in owned if rows[index].get("current")]
+        return current[0] if len(current) == 1 else None
+    legacy = []
+    for index, row in enumerate(rows):
+        if not row.get("current") or _is_main_chat(row):
+            continue
+        ids = _row_ids(row)
+        if ids and ids != {wanted}:
+            continue
+        legacy.append(index)
+    return legacy[0] if len(legacy) == 1 else None
+
+
+def current_side_row(page, chat, seconds=ROW_WAIT_SECONDS):
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            rows = page.evaluate(SIDE_ROWS_JS) or []
+            index = choose_side_row(rows, chat)
+            if index is not None:
+                row = page.locator(f'[data-imagegen-row="{index}"]')
+                if row.count() == 1 and "Main chat" not in row.inner_text():
+                    return row
+        except Exception:
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        page.wait_for_timeout(400)
+
+
 def row_menu(page, chat, item, timeout=30000):
     open_url(page, f"{BASE}/thread/{chat}")
     chats_panel(page)
-    row = page.locator('[data-testid=hatch-thread-row][aria-current=page]')
-    if row.count() != 1 or "Main chat" in row.inner_text():
+    row = current_side_row(page, chat)
+    if row is None:
         raise RuntimeError(f"当前行不是侧聊天 {chat}，不动它")
     row.dispatch_event("contextmenu", {"bubbles": True, "button": 2, "clientX": 150, "clientY": 150})
     page.get_by_role("menuitem", name=item).click(timeout=timeout)
@@ -153,15 +275,16 @@ def rename(page, chat, title, timeout=8000):
 
 
 def rename_or_continue(page, chat, title):
-    # 改名只是给用户看的标题。对话框打不开或超时都不能挡住出图。
+    # 改名只是给用户看的标题。行找不到、对话框打不开或超时，都记一条警告然后继续出图。
     try:
         rename(page, chat, title)
         return True
-    except Exception:
+    except Exception as error:
         try:
             page.keyboard.press("Escape")
         except Exception:
             pass
+        print(f"muse: rename skipped ({error}); continuing", file=sys.stderr)
         return False
 
 
@@ -342,9 +465,8 @@ def generate(args):
             chat = None
             try:
                 chat, since = send(page, text, refs)
-                # Muse 会去掉标题两头的空格。改名失败就关掉对话框，继续等图。
-                if not rename_or_continue(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip()):
-                    print("muse rename skipped; continuing", file=sys.stderr)
+                # Muse 会去掉标题两头的空格。改名失败只打一条警告，出图继续。
+                rename_or_continue(page, chat, (args.title or f"imagegen-swarm：{prompt[:24]}").strip())
                 open_url(page, f"{BASE}/thread/{chat}")
                 replies = wait_done(page, since, start + args.timeout / 1000, approved, args.cancel_file, remote)
                 last = next((m["text"] for m in reversed(replies) if m["role"] == "assistant"), "")

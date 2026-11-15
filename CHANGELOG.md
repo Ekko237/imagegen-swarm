@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4 - 2026-11-15
+
+- **Muse still generates when the side-chat row cannot be renamed.** After opening `/thread/<id>`, the sidebar no longer marks the open chat as `[data-testid=hatch-thread-row][aria-current=page]`, so the row lookup raised `当前行不是侧聊天` and the run stopped. That same lookup also runs when the side chat is deleted, so an image that had already been saved was still reported as a failure. The row is now matched by its thread id (link or data attribute), with the older current-row marker as a fallback, after a short wait for the sidebar. If the row still cannot be proven, rename logs one warning and generation continues. A chat that is not this thread, including Main chat, is still never renamed or deleted.
+
 ## 1.2.3 - 2026-11-15
 
 - **Security hardening for ClawHub scan.** Dreamina install steps are pinned checksums the user runs, instead of an unpinned pipe-to-shell installer. The Lovart client v1.1.1 is shipped as readable `scripts/lovart_agent.py`, so the agent does not clone or run a remote script. Grok is limited to the one imagine tool a job needs, plus writing inside the workspace sandbox. Muse clicks "Allow once" only for a write of that run's exact output file. Codex leaves `workspace-write` only when the user asked and the log shows the sandbox blocked the write. Required binaries and optional environment variables are declared in `metadata.openclaw`.

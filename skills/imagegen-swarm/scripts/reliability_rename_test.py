@@ -1,7 +1,9 @@
-"""Muse rename is cosmetic: a failing dialog must not stop generation."""
+"""Muse rename is cosmetic: a missing row or a failing dialog must not stop generation."""
 import importlib.util
+import io
 import sys
 import types
+from contextlib import redirect_stderr
 from pathlib import Path
 
 
@@ -79,6 +81,83 @@ def test_dismiss_failure_still_continues():
     assert muse.rename_or_continue(page, "chat-id", "title") is False
 
 
+CHAT = "11111111-1111-1111-1111-111111111111"
+OTHER = "22222222-2222-2222-2222-222222222222"
+
+
+def test_row_miss_warns_once_and_continues():
+    page = types.SimpleNamespace(keyboard=Keyboard())
+    original = muse.rename
+
+    def missing(_page, _chat, _title, timeout=8000):
+        raise RuntimeError(f"当前行不是侧聊天 {CHAT}，不动它")
+
+    muse.rename = missing
+    err = io.StringIO()
+    try:
+        with redirect_stderr(err):
+            assert muse.rename_or_continue(page, CHAT, "imagegen-swarm: title") is False
+    finally:
+        muse.rename = original
+    warning = err.getvalue()
+    assert warning.count("rename skipped") == 1
+    assert "不动它" in warning
+    assert page.keyboard.keys == ["Escape"]
+
+
+def test_choose_side_row_by_thread_id():
+    rows = [
+        {"text": "Main chat", "ids": [OTHER], "current": True},
+        {"text": "imagegen-swarm", "ids": [CHAT], "current": False},
+    ]
+    assert muse.choose_side_row(rows, CHAT) == 1
+    # The open thread can be named by a data attribute, with the current marker on a child.
+    marked = [{"text": "imagegen-swarm", "ids": [CHAT.upper()], "current": True}]
+    assert muse.choose_side_row(marked, CHAT) == 0
+    # Two copies of this thread: only the one marked current is safe to touch.
+    copies = [
+        {"text": "a", "ids": [CHAT], "current": False},
+        {"text": "b", "ids": [CHAT], "current": True},
+    ]
+    assert muse.choose_side_row(copies, CHAT) == 1
+
+
+def test_choose_side_row_refuses_other_chats():
+    # A highlighted row for a different thread is not this side chat.
+    foreign = [{"text": "other", "ids": [OTHER], "current": True}]
+    assert muse.choose_side_row(foreign, CHAT) is None
+    # Main chat is never renamed or deleted, even when it carries this id.
+    main = [{"text": "Main chat\nimagegen-swarm", "ids": [CHAT], "current": True}]
+    assert muse.choose_side_row(main, CHAT) is None
+    # Two rows that both claim this thread, and neither is current, are ambiguous.
+    both = [
+        {"text": "a", "ids": [CHAT], "current": False},
+        {"text": "b", "ids": [CHAT], "current": False},
+    ]
+    assert muse.choose_side_row(both, CHAT) is None
+    # A container that lists this thread plus another is not a single chat.
+    mixed = [{"text": "list", "ids": [CHAT, OTHER], "current": True}]
+    assert muse.choose_side_row(mixed, CHAT) is None
+    assert muse.choose_side_row([], CHAT) is None
+
+
+def test_choose_side_row_legacy_current_marker():
+    # Older markup had no thread id on the row, only aria-current on the open side chat.
+    legacy = [
+        {"text": "Main chat", "ids": [], "current": False},
+        {"text": "imagegen-swarm", "ids": [], "current": True},
+    ]
+    assert muse.choose_side_row(legacy, CHAT) == 1
+    # Two current rows, or a current Main chat, are not safe to touch.
+    ambiguous = [
+        {"text": "one", "ids": [], "current": True},
+        {"text": "two", "ids": [], "current": True},
+    ]
+    assert muse.choose_side_row(ambiguous, CHAT) is None
+    only_main = [{"text": "Main chat", "ids": [], "current": True}]
+    assert muse.choose_side_row(only_main, CHAT) is None
+
+
 def test_approval_requires_exact_output_write():
     remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
     assert muse.scoped_save_approval(f"write file {remote}", remote) is True
@@ -93,5 +172,9 @@ if __name__ == "__main__":
     test_timeout_skips_and_dismisses()
     test_success_does_not_dismiss()
     test_dismiss_failure_still_continues()
+    test_row_miss_warns_once_and_continues()
+    test_choose_side_row_by_thread_id()
+    test_choose_side_row_refuses_other_chats()
+    test_choose_side_row_legacy_current_marker()
     test_approval_requires_exact_output_write()
     print("rename tests ok")
