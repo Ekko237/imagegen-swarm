@@ -45,10 +45,28 @@ IDLE_SECONDS = 8
 ROW_WAIT_SECONDS = 5
 
 
+def mark_run_dir(directory):
+    run_id = os.environ.get("IMAGE_GEN_RUN_ID", "").strip()
+    if not run_id:
+        return
+    marker = directory / ".imagegen-swarm-run"
+    if not marker.exists():
+        marker.write_text(run_id + "\n", encoding="utf-8")
+
+
 @contextmanager
-def browser(headless=True):
-    # 同一个资料夹同一时刻只能一个浏览器打开：加锁排队
-    PROFILE.mkdir(parents=True, exist_ok=True)
+def browser(headless=True, create_profile=False):
+    # 同一个资料夹同一时刻只能一个浏览器打开：加锁排队。
+    # 资料夹只在用户显式 --login 时创建，出图和列聊天不会新建它。
+    if not PROFILE.exists():
+        if not create_profile:
+            raise RuntimeError(
+                "Muse profile directory does not exist. Run muse-image.py --login so the user can sign in. "
+                "Generation does not create it."
+            )
+        PROFILE.mkdir(parents=True, exist_ok=True)
+    elif not PROFILE.is_dir():
+        raise RuntimeError(f"Muse profile path is not a directory: {PROFILE}")
     with open(PROFILE.parent / f"{PROFILE.name}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         proxy = None
@@ -445,6 +463,7 @@ def generate(args):
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".muse-image-", dir=out.parent) as tmp:
         work = Path(tmp)
+        mark_run_dir(work)
         refs, ref_hashes = [], set()
         for index, ref in enumerate(args.ref, 1):
             # 参考图换成唯一上传名，云端同名文件不会被改名
@@ -506,7 +525,7 @@ def main():
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     if args.login:
-        with browser(headless=False) as page:
+        with browser(headless=False, create_profile=True) as page:
             page.goto(BASE + "/", wait_until="domcontentloaded")
             composer(page).wait_for(state="visible", timeout=0)
         print(json.dumps({"status": "ok", "logged_in": True}))

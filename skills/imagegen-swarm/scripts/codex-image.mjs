@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { markRunDir, sandboxMayWiden, userApprovedSandboxWiden } from "./safety.mjs";
 
 const SHELL_METACHAR = /[;|&`$<>\n\r()'"]/;
 
@@ -51,9 +52,10 @@ function parseArgs(argv) {
 function printHelp() {
   process.stdout.write(`codex-image.mjs — image via Codex CLI image_gen\n\n` +
     `node codex-image.mjs --out <png> (--prompt <t> | --prompt-file <p>) [--aspect 1:1] [--ref f]... [--sandbox workspace-write] [--escalate-sandbox] [--timeout ms] [--retries n] [--codex path] [--model gpt-6-luna] [--effort low] [--json]\n\n` +
-    `--escalate-sandbox: only after the user agrees, and only when the log says the\n` +
-    `workspace-write sandbox blocked the PNG write. Remaining attempts then use\n` +
-    `danger-full-access. Other failures stay in workspace-write.\n`);
+    `--escalate-sandbox: does not widen this process by itself. A later attempt\n` +
+    `leaves workspace-write only when the log says the sandbox blocked the write\n` +
+    `AND the user has set IMAGE_GEN_SANDBOX_ESCALATE=yes for that retry.\n` +
+    `The agent must not set that variable. Other failures stay in workspace-write.\n`);
 }
 
 let JSON_MODE = false;
@@ -220,6 +222,7 @@ async function main() {
 
   const logDir = path.join(outDir, `.codex-img-${Date.now()}`);
   await mkdir(logDir, { recursive: true }).catch(() => {});
+  await markRunDir(logDir);
   const start = Date.now();
   let lastErr = "unknown";
   const preExisting = await snapshotGeneratedImages();
@@ -249,12 +252,16 @@ async function main() {
     lastErr = run.code !== 0 ? `codex exec exited ${run.code}: ${run.stderr.slice(0, 200)}` : `no valid PNG at ${o.out} (agent may not have called image_gen, or sandbox blocked the write)`;
     if (!o.json) process.stderr.write(`[codex] attempt ${attempt} failed: ${lastErr}\n`);
     const blocked = sandboxBlocked(run);
-    if (o.escalateSandbox && blocked && o.sandbox !== "danger-full-access") {
+    const approved = userApprovedSandboxWiden();
+    if (sandboxMayWiden({ escalateSandbox: o.escalateSandbox, approved, blocked, sandbox: o.sandbox })) {
       o.sandbox = "danger-full-access";
-      if (!o.json) process.stderr.write(`[codex] sandbox blocked the write and --escalate-sandbox was set -> retrying remaining attempts with danger-full-access\n`);
+      if (!o.json) process.stderr.write(`[codex] sandbox blocked the write and the user approved a wider sandbox -> retrying remaining attempts with danger-full-access\n`);
+    } else if (blocked && o.escalateSandbox && !approved) {
+      lastErr += ` — sandbox blocked the write. Not retrying with a wider sandbox. The user must set IMAGE_GEN_SANDBOX_ESCALATE=yes before a broader retry. The agent must not set it.`;
+      if (!o.json) process.stderr.write(`[codex] not escalating: --escalate-sandbox is set but the user has not approved IMAGE_GEN_SANDBOX_ESCALATE=yes\n`);
     } else if (blocked && o.sandbox === "workspace-write") {
-      lastErr += ` — sandbox blocked the write. Ask the user before re-running with --escalate-sandbox`;
-      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox; ask the user before passing --escalate-sandbox\n`);
+      lastErr += ` — sandbox blocked the write. Ask the user before a wider sandbox. They must set IMAGE_GEN_SANDBOX_ESCALATE=yes themselves.`;
+      if (!o.json) process.stderr.write(`[codex] not escalating the sandbox; the user must set IMAGE_GEN_SANDBOX_ESCALATE=yes\n`);
     } else if (o.escalateSandbox && !blocked) {
       if (!o.json) process.stderr.write(`[codex] not escalating: this failure is not a sandbox block\n`);
     }

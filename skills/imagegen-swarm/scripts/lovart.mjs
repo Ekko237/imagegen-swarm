@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isInvokedDirectly } from "./direct.mjs";
+import { markRunDir } from "./safety.mjs";
 
 // 图片转换交给跨平台的 imgtool.py（Pillow）
 const PY = process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3");
@@ -152,6 +153,7 @@ async function main() {
   // 3) 每次都开新 thread（不传 --thread-id）：同 thread 并发提交会 409，不同 thread 才能并行
   const tmp = path.join(path.dirname(path.resolve(o.out)), `.lovart-${process.pid}-${Date.now()}`);
   await mkdir(tmp, { recursive: true });
+  await markRunDir(tmp);
   const args = ["chat", "--prompt", prompt, "--json", "--download", "--output-dir", tmp];
   if (attachments.length) args.push("--attachments", ...attachments);
   if (o.model) args.push("--prefer-models", JSON.stringify({ IMAGE: [o.model] }));

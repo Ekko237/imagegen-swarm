@@ -1,7 +1,8 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) takes over when every subscription is out. Jimeng can edit from up to 10 reference images, and Gemini from up to 3. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.2.4
+version: 1.2.5
+allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
     requires:
@@ -19,7 +20,7 @@ metadata:
         description: Path to the Codex CLI when it is not on PATH.
       - name: CODEX_HOME
         required: false
-        description: Codex home directory. Defaults to ~/.codex.
+        description: Codex home directory. Generation reads only its generated_images subdirectory, to hash older files and reject a reused image. It does not read auth, config, or session files. check.mjs only tests whether auth.json exists.
       - name: AGY_BIN
         required: false
         description: Path to the Antigravity CLI. Defaults to ~/.local/bin/agy.
@@ -68,31 +69,122 @@ metadata:
       - name: HTTPS_PROXY
         required: false
         description: Optional proxy for the Muse browser only.
+      - name: IMAGE_GEN_RUN_ID
+        required: false
+        description: Set by batch.mjs for one run. Work directories are deleted only when they carry this run's marker.
+      - name: IMAGE_GEN_SANDBOX_ESCALATE
+        required: false
+        description: Set to yes only by the user, after they approve a Codex retry outside workspace-write. The agent must not set it.
 ---
 
 # imagegen-swarm
 
-Use this when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video, including Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, and Lovart. Do not use it for ordinary local image processing such as crop, resize, or convert.
+Use this when the user asks to generate an image, draw, edit an image, use reference images, make a
+video, or do text-to-image or text-to-video, including Codex, Grok, Grok Imagine, Gemini, nano
+banana, Antigravity, Jimeng, Dreamina, Muse, and Lovart. Do not use it for ordinary local image
+processing such as crop, resize, or convert.
 
-Run only the scripts in this folder (`node` for `.mjs`, `python3` for `.py`). Those files are the whole procedure. Do not fetch, clone, or execute an installer, and do not read or follow a skill file outside this folder. Engine CLIs are user-installed prerequisites listed in [SETUP.md](SETUP.md). If one is missing, ask the user to install it and stop; do not install it yourself. Before running any command that is not one of these scripts, ask the user, and request only the permission that command needs.
+Run only the scripts in this folder (`node` for `.mjs`, `python3` for `.py`). Those files are the
+whole procedure. Do not fetch, clone, or execute an installer, and do not read or follow a skill
+file outside this folder. Engine CLIs are user-installed prerequisites listed in
+[SETUP.md](SETUP.md). If one is missing, ask the user to install it and stop; do not install it
+yourself. Before running any command that is not one of these scripts, ask the user, and request
+only the permission that command needs.
 
-The core is work-stealing: write the images you need as a job list and hand it to `batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free takes the next image it can handle, so every engine's quota is used and the batch finishes as fast as possible. A single image goes through `batch.mjs` too: the first engine in line takes it, and if that engine is out of quota the next one does. When every subscription runs dry at once, a pay-per-image API line you configured keeps the queue moving.
+The core is work-stealing: write the images you need as a job list and hand it to
+`scripts/batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free
+takes the next image it can handle, so every engine's quota is used and the batch finishes as fast
+as possible. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
+and if that engine is out of quota the next one does. When every subscription runs dry at once, a
+pay-per-image API line you configured keeps the queue moving.
+
+Privacy: a prompt and any reference images are sent to the external service for each engine that
+actually runs that job (OpenAI, Dreamina, xAI, Google, Muse, Lovart, or the API host in the
+pay-per-image setup). Do not send sensitive, confidential, or personal content unless the user has
+agreed that this provider may see it. Do not add a provider the user did not name without asking
+first.
+
+An example job list is [references/jobs.example.json](references/jobs.example.json). Copy it and
+edit the prompts. Only `id` and `prompt` are required.
 
 ```bash
-node scripts/batch.mjs --jobs jobs.json --out out/
+node scripts/batch.mjs --jobs references/jobs.example.json --out out/
 ```
 
-`jobs.json` is an array of `{"id": "cat", "prompt": "...", "aspect": "1:1", "ref": ["a.png"], "video": false, "engine": "gemini"}`; only `id` and `prompt` are required. `ref` paths are relative to the job file, and `engine` pins a job to one engine. Output goes to `out/<id>.png` (`.mp4` for video); existing files are skipped, so an interrupted run resumes where it stopped.
+`ref` paths are relative to the job file, and `engine` pins a job to one engine. Output goes to
+`out/<id>.png` (`.mp4` for video); existing files are skipped, so an interrupted run resumes where
+it stopped.
 
-- Lanes scale with your RAM. The baseline is 8 GB (measured on an M1: 12 images at once with no slowdown and about 30% memory left): gemini and codex 6 each, jimeng and grok 4, lovart 2. Other machines scale proportionally, at least 1 and at most 1.5× per engine (4 GB → 12 lanes in total, 16 GB or more → 34); muse always gets 1. Lanes take work in that order and the first log line shows the counts. Set `IMAGE_GEN_MEMORY_GB=4` (for example) to size lanes for a smaller memory budget. `--engines` limits the engines; `--lanes gemini=3,muse=0` overrides lane counts.
-- Tail stealing: once the queue is empty, an idle lane may duplicate an image that is still running. It does that only after the holder has run longer than 1.5× its own median time for this batch (the built-in typical time until this batch has samples). A fast engine does not redo an image a slower engine just started. At most one duplicate runs. Whichever finishes first is kept; the other is cancelled (SIGINT to the process group, or a cancel file for Muse) or ignored if it finishes later. `batch-results.json` lists every attempt with start, finish and outcome (done, cancelled, failed).
-- An engine that reports exhausted quota, no login or no install is shut down immediately, and the image it held goes back to the queue. A plain rate limit (HTTP 429, `rate limit`, or `RESOURCE_EXHAUSTED` without an explicit quota or credit failure) backs off and is shut down only after three consecutive rate-limit failures. A missing reference or output file, or any other generic "not found", does not shut the engine down.
-- If a job sets an aspect ratio, an image whose ratio is off by more than 3% is discarded and redone by another engine.
-- A failed image (refusal, timeout, …) is retried on an engine that has not tried it yet, up to `--tries` engines (default 3). An image no engine can take counts as failed.
-- Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and `out/batch-results.json` records which engine made each image and how long it took. Exit code is non-zero if anything failed.
-- Pay-per-image last resort `api`: on only when `~/.config/imagegen-swarm/api.json` exists (override with `IMAGE_GEN_API_CONFIG`; format in SETUP.md), 4 lanes by default (`lanes` in the config). It takes only images no subscription engine can take: every subscription engine is out of quota or already tried the image, or none supports its aspect ratio or reference count. While any subscription engine can still take an image (even one that is busy or backing off from a rate limit), the paid line waits; it never tail-steals and never spends money just to go faster. A job with `"engine": "api"` goes straight to it. Before each paid image it checks (images done + images in flight) × price against `budget_per_batch` and `budget_per_month`; if one more image would go over, the line shuts down and the remaining images fail. Every finished paid image adds one line to `~/.config/imagegen-swarm/api-spend.jsonl`, and the summary line has a `paid` field with this batch's images, cost and the month total.
+- Lanes scale with your RAM. The baseline is 8 GB (measured on an M1: 12 images at once with no
+  slowdown and about 30% memory left): gemini and codex 6 each, jimeng and grok 4, lovart 2. Other
+  machines scale proportionally, at least 1 and at most 1.5× per engine (4 GB → 12 lanes in total,
+  16 GB or more → 34); muse always gets 1. Lanes take work in that order and the first log line
+  shows the counts. Set `IMAGE_GEN_MEMORY_GB=4` (for example) to size lanes for a smaller memory
+  budget. `--engines` limits the engines; `--lanes gemini=3,muse=0` overrides lane counts.
+- Tail stealing: once the queue is empty, an idle lane may duplicate an image that is still running.
+  It does that only after the holder has run longer than 1.5× its own median time for this batch
+  (the built-in typical time until this batch has samples). A fast engine does not redo an image a
+  slower engine just started. At most one duplicate runs. Whichever finishes first is kept; the
+  other is cancelled (SIGINT to the process group, or a cancel file for Muse) or ignored if it
+  finishes later. The results file in the output directory lists every attempt with start, finish and outcome (done,
+  cancelled, failed).
+- An engine that reports exhausted quota, no login or no install is shut down immediately, and the
+  image it held goes back to the queue. A plain rate limit (HTTP 429, `rate limit`, or
+  `RESOURCE_EXHAUSTED` without an explicit quota or credit failure) backs off and is shut down only
+  after three consecutive rate-limit failures. A missing reference or output file, or any other
+  generic "not found", does not shut the engine down.
+- If a job sets an aspect ratio, an image whose ratio is off by more than 3% is discarded and redone
+  by another engine.
+- A failed image (refusal, timeout, …) is retried on an engine that has not tried it yet, up to
+  `--tries` engines (default 3). An image no engine can take counts as failed.
+- Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and
+  the results file in the output directory records which engine made each image and how long it
+  took. Exit code is non-zero if anything failed.
+- At the end of a run, batch deletes only the temporary files it created and the work directories
+  that contain this run's marker (`IMAGE_GEN_RUN_ID`). Directories left by another run are left in
+  place.
+- Pay-per-image last resort `api`: on only when the user has completed the pay-per-image setup in
+  [SETUP.md](SETUP.md) (override the config path with `IMAGE_GEN_API_CONFIG`). That file holds
+  `provider`, `model`, `price_per_image` (estimated USD), `budget_per_batch`, `budget_per_month`,
+  and `lanes` (default 4). The key is not in the file. Writing that setup is the user's consent to
+  spend at most those budgets, at `price_per_image`, on images in this job list that no subscription
+  engine can take. It never tail-steals and never spends money just to go faster. A job with
+  `"engine": "api"` goes straight to it. Before each paid image it checks (images done + images in
+  flight) × price against both budgets; if one more image would go over, the line shuts down and the
+  remaining images fail. Every finished paid image appends one JSON line to the spend ledger named
+  in SETUP.md. The summary line has a `paid` field with this batch's images, cost, and the month
+  total. Ask the user before any paid generation they did not ask for: do not create or edit the
+  pay-per-image setup, do not raise either budget, do not add `api` to `--engines`, and do not add
+  paid jobs beyond the list they gave you. Tell them the estimated cost (`price_per_image` times the
+  images that would use the paid line) and wait for a yes.
 - When the user names an engine, run only that one with `--engines`.
-- To pause an engine, create `~/.config/imagegen-swarm/engine-off/<engine>` (or set `IMAGE_GEN_ENGINE_OFF` to another folder); batch, check and evals skip it. Delete the file to turn it back on. A switch left in `~/.config/image-gen/engine-off/` still counts.
+- To pause an engine, ask the user to create an empty marker file named for that engine inside the
+  `engine-off` directory from SETUP.md (or set `IMAGE_GEN_ENGINE_OFF` to a folder they already
+  created). Do not create that directory yourself. Batch, check, and evals skip an engine whose
+  marker exists. The user deletes the marker to turn the engine back on. A marker left in the
+  previous `image-gen` folder still counts.
+
+## What is stored, and when
+
+The agent does not create these directories. The user creates them by running the matching steps in
+[SETUP.md](SETUP.md). Generation only reads or writes them after that.
+
+| Path | Created | What is stored | Why |
+|---|---|---|---|
+| Pay-per-image config from SETUP.md | User setup | Provider, model, price, budgets. No API key | Turns on the paid line and caps spend |
+| Spend ledger from SETUP.md | User setup creates the directory; a finished paid image appends one line | Time, provider, model, price | Stop before the monthly budget |
+| `engine-off` marker | User, to pause one engine | Empty file named for the engine | Skip that engine until the user deletes it |
+| Muse `muse-browser` profile | `scripts/muse-image.py --login` only | Browser profile and Muse session | Stay signed in |
+| Lovart credentials file from SETUP.md | User setup, mode 600 | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL` | Sign Lovart requests. Other lines in the file are ignored |
+| Lovart `state.json` next to those credentials | Not created by this skill. Saved only if the directory already exists | Project and thread ids | Resume a Lovart project. Missing directory skips the save |
+| `CODEX_HOME/generated_images` | Codex itself, not this skill | Older generated images | Hash them and reject a reused file. Nothing else under `CODEX_HOME` is read |
+| `CODEX_HOME/auth.json` | `codex login` | Login state. `scripts/check.mjs` only tests that the file exists | Report whether Codex is logged in |
+
+`scripts/check.mjs` passes its probes only `PATH`, `HOME`, temporary-directory variables, proxy and
+CA settings, and the variables named in the frontmatter above. It does not copy the whole
+environment into those probes. A batch keeps the environment of the process that launched it, and
+Lovart generation does the same, adding the three credential names when they were read from the
+credentials file. That file is read as text; only the three names in the table are kept.
 
 ## Engines
 
@@ -106,27 +198,97 @@ node scripts/batch.mjs --jobs jobs.json --out out/
 | lovart | `lovart.mjs` | image, reference images | `--aspect`, written into the prompt | ~35 s | Lovart credits |
 | api (optional) | `api-image.mjs` | image, edit (OpenAI ≤16 references, Gemini 3 or 14 by model) | `--aspect`, real parameter | ~30 s | pay per image, your own budget |
 
-Each engine script also works on its own (run `.mjs` with node, `.py` with python3). Shared flags: `--prompt` or `--prompt-file`, `--out <png>`, repeatable `--ref`, `--timeout`; one image per call, one JSON line, non-zero exit on failure. `batch.mjs` builds these flags from each job: an aspect ratio only goes to engines that truly support it (jimeng eight ratios, gemini and muse seven, grok five), jobs with too many references skip engines with a lower limit (jimeng 10, gemini 3, grok 1), and video only goes to jimeng and grok (only jimeng does video without a reference).
+Each engine script also works on its own (run `.mjs` with node, `.py` with python3). Shared flags:
+`--prompt` or `--prompt-file`, `--out <png>`, repeatable `--ref`, `--timeout`; one image per call,
+one JSON line, non-zero exit on failure. `batch.mjs` builds these flags from each job: an aspect
+ratio only goes to engines that truly support it (jimeng eight ratios, gemini and muse seven, grok
+five), jobs with too many references skip engines with a lower limit (jimeng 10, gemini 3, grok 1),
+and video only goes to jimeng and grok (only jimeng does video without a reference).
 
 ## Engine notes
 
-- **codex**: calls Codex's built-in `image_gen`. Always uses the official OpenAI provider (`-c model_provider="openai"`; `--model` defaults to `gpt-6-luna`, `--effort` to `low`), so it still works when the local Codex config points at a custom gateway. Runs in the `workspace-write` sandbox. `--escalate-sandbox` is off unless the user has agreed to it, and even then a retry leaves that sandbox only when the log says the sandbox blocked the write. It snapshots `~/.codex/generated_images` first and rejects any output identical to an older file. See [references/codex.md](references/codex.md).
-- **grok**: `grok-image.mjs` is the whole procedure. No `--ref` → text to image; `--ref` → edit (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio` cannot be auto). The Grok CLI runs in the work directory with sandbox profile `workspace` and permission mode `dontAsk`, and may use only the one imagine tool this job needs (`image_gen`, `image_edit`, or `reference_to_video`) plus `Write`. Shell, web fetch, and web search are denied. Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user rather than changing the setting.
-- **jimeng**: uses the official Dreamina CLI (`dreamina`), which the user installs from the pinned binaries in [SETUP.md](SETUP.md). No `--ref` → text to image (2K); `--ref` → edit; `--video` → text-to-video without references, or image-to-video from the first reference (default seedance2.0fast, 720p, 5 s; change with `--model`). Submit, polling and download go through `jimeng.mjs` in the same folder for those image and video commands. If a model returns `AigcComplianceConfirmationRequired`, the user must authorize it once on the Dreamina website.
-- **gemini**: uses the Antigravity CLI's (`agy`) built-in `generate_image`, called by its image-generator subagent. `--aspect` accepts 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9. Output includes `tool_prompt` and `prompt_verbatim`; `false` means the subagent rewrote the prompt, so mention it when delivering. A long prompt clipped in the session log does not discard an image that was generated; the script reads `transcript_full.jsonl` when Antigravity wrote one.
-- **muse**: Muse has no API, so the script drives its own headless browser (profile `~/.config/imagegen-swarm/muse-browser`, override with `IMAGE_GEN_MUSE_PROFILE`) in one pass: open a side chat, send the task, wait, download from the cloud computer's file library, delete the side chat. Renaming the side chat is best-effort: if the current side-chat row cannot be identified, or the rename dialog fails or times out, the script logs one warning, closes any dialog, and keeps generating. It still refuses to rename or delete a row it cannot prove is this side chat. If Muse asks for approval, the script clicks "Allow once" only when that single request is a write of this run's exact output file, or a create of that file's directory, under `/home/hatch/workspace/imagegen-swarm`. Any other request stops the run and returns the request text; ask the user before approving it. One process at a time can use the browser. An existing profile in `~/.config/image-gen/muse-browser` is still used until you move it.
-- **lovart**: `lovart.mjs` runs the readable client shipped at `scripts/lovart_agent.py` (pinned from lovartai/lovart-skill v1.1.1). It opens a fresh thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`. If the client reports a pending confirmation, stop and ask the user; do not confirm a charge yourself. See [references/lovart.md](references/lovart.md).
-- **api**: `provider` is `openai` or `gemini`. openai calls `/v1/images/generations` (`/v1/images/edits` with `image[]` when there are references); point `base_url` at any OpenAI-compatible gateway to use it instead. `gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5` only do 1:1, 3:2 and 2:3; from `gpt-image-2` on, the size is computed from the ratio (about 1.57 MP, multiples of 16, no more than 3:1). gemini calls `/v1beta/interactions` with the ratio and `image_size` in `response_format`. The key comes from an environment variable (`OPENAI_API_KEY` / `GEMINI_API_KEY` by default, change with `key_env`) or a `key_file` with mode 600, never from the config itself. 401/403, 402, exhausted quota or budget shut the line down; a plain 429 backs off. The ledger records finished images at the price you configured; your provider's bill is the real number.
+- **codex**: calls Codex's built-in `image_gen`. Always uses the official OpenAI provider (`-c
+  model_provider="openai"`; `--model` defaults to `gpt-6-luna`, `--effort` to `low`), so it still
+  works when the local Codex config points at a custom gateway. Runs in the `workspace-write`
+  sandbox. Do not pass `--escalate-sandbox` unless the user has agreed, and do not set
+  `IMAGE_GEN_SANDBOX_ESCALATE`. A retry leaves `workspace-write` only when the log says the sandbox
+  blocked the write and the user has set `IMAGE_GEN_SANDBOX_ESCALATE=yes` for that new attempt. The
+  only Codex path generation reads is the `generated_images` subdirectory of `CODEX_HOME`: it lists
+  that directory and hashes files so a failed call cannot reuse an older image. It does not open
+  auth, config, sessions, or any other file there. See [references/codex.md](references/codex.md).
+- **grok**: `grok-image.mjs` is the whole procedure. No `--ref` → text to image; `--ref` → edit
+  (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio`
+  cannot be auto). The Grok CLI runs in the work directory with sandbox profile `workspace` and
+  permission mode `dontAsk`, and may use only the one imagine tool this job needs (`image_gen`,
+  `image_edit`, or `reference_to_video`) plus `Write`. Shell, web fetch, and web search are denied.
+  Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user
+  rather than changing the setting.
+- **jimeng**: uses the official Dreamina CLI (`dreamina`), which the user installs from the pinned
+  binaries in [SETUP.md](SETUP.md). No `--ref` → text to image (2K); `--ref` → edit; `--video` →
+  text-to-video without references, or image-to-video from the first reference (default
+  seedance2.0fast, 720p, 5 s; change with `--model`). Submit, polling and download go through
+  `scripts/jimeng.mjs` for those image and video commands only. That wrapper accepts `text2image`,
+  `image2image`, `image_upscale`, `text2video`, `image2video`, `frames2video`, `multiframe2video`,
+  and `multimodal2video`, plus the prompt, ratio, resolution, image, and model flags those commands
+  need. It rejects every other Dreamina command, including login and account commands. If a model
+  returns `AigcComplianceConfirmationRequired`, the user must authorize it once on the Dreamina
+  website.
+- **gemini**: uses the Antigravity CLI's (`agy`) built-in `generate_image`, called by its
+  image-generator subagent. `--aspect` accepts 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9. Output includes
+  `tool_prompt` and `prompt_verbatim`; `false` means the subagent rewrote the prompt, so mention it
+  when delivering. A long prompt clipped in the session log does not discard an image that was
+  generated; the script reads the full session transcript when Antigravity wrote one beside the log.
+- **muse**: Muse has no API, so the script drives its own headless browser in one pass: open a side
+  chat, send the task, wait, download from the cloud computer's file library, delete the side chat.
+  The browser profile is the directory named by `IMAGE_GEN_MUSE_PROFILE`, or the `muse-browser`
+  directory from SETUP.md. That directory is created only when the user runs `scripts/muse-image.py
+  --login`. Generation and `--list-chats` do not create it. Renaming the side chat is best-effort:
+  if the current side-chat row cannot be identified, or the rename dialog fails or times out, the
+  script logs one warning, closes any dialog, and keeps generating. It still refuses to rename or
+  delete a row it cannot prove is this side chat. If Muse asks for approval, the script clicks
+  "Allow once" only when that single request is a write of this run's exact output file, or a create
+  of that file's directory, under the Muse workspace path `/home/hatch/workspace/imagegen-swarm`.
+  Any other request stops the run and returns the request text; ask the user before approving it.
+  One process at a time can use the browser. An existing profile in the previous `image-gen` folder
+  is still used until the user moves it.
+- **lovart**: `scripts/lovart.mjs` runs `scripts/lovart_agent.py` (the command entry). HTTP calls
+  are in `scripts/lovart_client.py` and the local project list is in `scripts/lovart_state.py`,
+  split from the readable v1.1.1 client so each file stays small enough to review. It opens a fresh
+  thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not
+  prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`.
+  If the client reports a pending confirmation, stop and ask the user; do not confirm a charge
+  yourself. See [references/lovart.md](references/lovart.md).
+- **api**: `provider` is `openai` or `gemini`. openai calls `/v1/images/generations`
+  (`/v1/images/edits` with `image[]` when there are references); point `base_url` at any
+  OpenAI-compatible gateway to use it instead. `gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5`
+  only do 1:1, 3:2 and 2:3; from `gpt-image-2` on, the size is computed from the ratio (about 1.57
+  MP, multiples of 16, no more than 3:1). gemini calls `/v1beta/interactions` with the ratio and
+  `image_size` in `response_format`. The key comes from an environment variable (`OPENAI_API_KEY` /
+  `GEMINI_API_KEY` by default, change with `key_env`) or a `key_file` with mode 600, never from the
+  config itself. 401/403, 402, exhausted quota or budget shut the line down; a plain 429 backs off.
+  The ledger records finished images at the price you configured; your provider's bill is the real
+  number.
 
-Every engine checks that the returned image is new from this run and differs from the reference images after decoding, and converts non-PNG output to PNG.
+Every engine checks that the returned image is new from this run and differs from the reference
+images after decoding, and converts non-PNG output to PNG.
 
 ## When every engine is out of quota
 
-If the api line is configured and has budget left, `batch.mjs` already handed the images to it. Otherwise, generate in the ChatGPT, Gemini or Grok web app in a new browser tab, download and check the image, then close the tab. An engine error is different from running out of quota; if the engine the user named fails, report it instead of switching to the web.
+If the api line is configured and has budget left, `batch.mjs` already handed the images to it.
+Otherwise, generate in the ChatGPT, Gemini or Grok web app in a new browser tab, download and check
+the image, then close the tab. An engine error is different from running out of quota; if the engine
+the user named fails, report it instead of switching to the web.
 
 ## Checks
 
-- `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits). With the api line configured, it checks the key against the free model-list endpoint and shows this month's spend and budget.
-- After changing a script, run `node scripts/reliability.test.mjs` first (no images, no cost; it runs `batch.mjs` for real to check when the paid line does and does not take an image).
+- `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits).
+  With the api line configured, it checks the key against the free model-list endpoint and shows
+  this month's spend and budget.
+- After changing a script, run `node scripts/reliability.test.mjs` first (no images, no cost; it
+  runs `batch.mjs` for real to check when the paid line does and does not take an image).
 - Look at every image before delivering it; sample frames from videos.
-- After changing the skill, run the fixed tests: `node evals/run.mjs <outdir> [--only id,id]`. The script checks status, aspect ratio, prompt passthrough and Muse cleanup; a judge scores each image 1–5 using the rubric in `evals/evals.json`. The change is done when every check passes and every image scores at least 4. `api-t2i` and `api-edit` cost real money each run, so ask the user first; they are skipped when the api line is not configured.
+- After changing the skill, run the fixed tests: `node evals/run.mjs <outdir> [--only id,id]`. The
+  script checks status, aspect ratio, prompt passthrough and Muse cleanup; a judge scores each image
+  1–5 using the rubric in `evals/evals.json`. The change is done when every check passes and every
+  image scores at least 4. `api-t2i` and `api-edit` cost real money each run, so ask the user first;
+  they are skipped when the api line is not configured.

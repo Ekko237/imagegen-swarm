@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
+import { markRunDir } from './safety.mjs';
 
 // 按次付费的 API 线路：订阅额度都见底时的最后一档，用多少算多少。
 // 配置文件 ~/.config/imagegen-swarm/api.json（IMAGE_GEN_API_CONFIG 可改），key 放环境变量或权限 600 的 key 文件，不写进配置。
@@ -212,6 +213,7 @@ async function main() {
   const bytes = await call(config, key, prompt, o.ref, o.aspect, o.timeout);
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.api-image-${Date.now()}-`));
+  await markRunDir(work);
   try {
     const raw = path.join(work, 'raw.bin');
     await writeFile(raw, bytes);
@@ -227,7 +229,8 @@ async function main() {
   // 出图成功才记账；接口报错一般不收费
   const now = new Date();
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  await mkdir(path.dirname(LEDGER_FILE), { recursive: true });
+  const ledgerDir = path.dirname(LEDGER_FILE);
+  if (!existsSync(ledgerDir)) throw new Error(`spend ledger directory does not exist: ${ledgerDir}. Create it during setup (see SETUP.md). Generation does not create config directories.`);
   await appendFile(LEDGER_FILE, JSON.stringify({ at: now.toISOString(), month, provider: config.provider, model: config.model, aspect: o.aspect ?? null, refs: o.ref.length, usd: config.price }) + '\n');
   const { width, height } = await imgtool(['size', o.out]);
   console.log(JSON.stringify({ status: 'ok', path: o.out, engine: 'api', provider: config.provider, model: config.model, width, height,

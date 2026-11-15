@@ -1,6 +1,7 @@
 #!/bin/sh
 # Optional Lovart wrapper. lovart.mjs runs scripts/lovart_agent.py directly.
-# This file loads ~/.lovart/env and execs that shipped client.
+# This file reads the three named keys from ~/.lovart/env and execs that shipped client.
+# It does not source the file.
 # Set LOVART_AGENT_SKILL if this wrapper is copied out of the skill folder.
 #
 # The credentials file should be owner-only (mode 600). The mode check uses GNU stat (-c)
@@ -31,8 +32,22 @@ case $mode in
     ;;
 esac
 
-# shellcheck disable=SC1090
-. "$ENV_FILE"
+# Read only the named Lovart keys. Do not source the file.
+read_named() {
+  key=$1
+  line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" | head -n 1 || true)
+  [ -n "$line" ] || return 0
+  val=${line#*=}
+  val=$(printf '%s' "$val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  case $val in
+    \"*\") val=$(printf '%s' "$val" | sed 's/^"//; s/"$//') ;;
+    \'*\') val=$(printf '%s' "$val" | sed "s/^'//; s/'$//") ;;
+  esac
+  export "$key=$val"
+}
+read_named LOVART_ACCESS_KEY
+read_named LOVART_SECRET_KEY
+read_named LOVART_BASE_URL
 
 if [ -n "${LOVART_AGENT_SKILL:-}" ]; then
   AGENT=$LOVART_AGENT_SKILL

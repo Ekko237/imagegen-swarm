@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.5 - 2026-11-15
+
+- **ClawHub scan follow-up. Image generation behavior is unchanged.** Docs, tool scope, and safety guards only. `scripts/muse-image.py` thread matching and the `scripts/batch.mjs` provider calls behave as in 1.2.4.
+- Codex generation reads only the `generated_images` subdirectory of `CODEX_HOME`, to reject a reused older file. `scripts/check.mjs` only tests whether `auth.json` exists.
+- The readiness check passes probes only the named environment variables documented in SKILL.md. Lovart generation keeps the batch environment. The credentials file is not sourced; only `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and `LOVART_BASE_URL` are read from it.
+- `allowed-tools` declares Bash, Read, Write, WebFetch, and Env.
+- Prompts and reference images are disclosed as being sent to the provider that runs the job. The agent must not send sensitive content without consent.
+- Config directories (Muse profile, Lovart state, pay-per-image ledger directory) are created only during explicit setup. SKILL.md lists what is stored, where, and why.
+- `scripts/jimeng.mjs` accepts only Dreamina image and video generation commands, and rejects other commands and flags.
+- Paid API spend, price, and budgets are documented. The agent must ask before paid work the user did not request.
+- A Codex retry does not leave `workspace-write` unless the user sets `IMAGE_GEN_SANDBOX_ESCALATE=yes`.
+- Batch cleanup deletes only this run's temporary files and work directories that carry this run's marker.
+- The Lovart client is split into `scripts/lovart_client.py`, `scripts/lovart_state.py`, and the `scripts/lovart_agent.py` entry so each file can be reviewed on its own. The command line is the same.
+
 ## 1.2.4 - 2026-11-15
 
 - **Muse still generates when the side-chat row cannot be renamed.** After opening `/thread/<id>`, the sidebar no longer marks the open chat as `[data-testid=hatch-thread-row][aria-current=page]`, so the row lookup raised `当前行不是侧聊天` and the run stopped. That same lookup also runs when the side chat is deleted, so an image that had already been saved was still reported as a failure. The row is now matched by its thread id (link or data attribute), with the older current-row marker as a fallback, after a short wait for the sidebar. If the row still cannot be proven, rename logs one warning and generation continues. A chat that is not this thread, including Main chat, is still never renamed or deleted.

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { markRunDir } from './safety.mjs';
 
 // 即梦（Dreamina）引擎，参数和其他引擎一致：无 --ref 文生图，有 --ref 改图（image2image，最多 10 张），
 // --video 无 --ref 文生视频、有 --ref 图生视频（第一张参考图当首帧）。提交、轮询、下载交给同目录的 jimeng.mjs。
@@ -61,6 +62,7 @@ async function main() {
   if (!prompt) throw new Error('empty prompt');
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), `.jimeng-image-${Date.now()}-`));
+  await markRunDir(work);
   try {
     const sub = o.video ? (o.refs.length ? 'image2video' : 'text2video') : (o.refs.length ? 'image2image' : 'text2image');
     const flags = [`--prompt=${prompt}`];

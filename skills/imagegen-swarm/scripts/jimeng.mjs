@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // jimeng.mjs — thin wrapper around the Dreamina `dreamina` CLI.
-// Submits ANY async generator subcommand (text2image / image2image /
-// text2video / image2video / image_upscale / ...), polls query_result until the
-// task finishes, and downloads the result media locally. One flow for image AND
-// video, because every Dreamina async task shares the submit_id / gen_status /
+// Submits a media-generation subcommand (image or video), polls query_result
+// until the task finishes, and downloads the result locally. Other Dreamina
+// commands (login, account, credit transfer, and anything outside the list
+// below) are rejected. Image and video share the submit_id / gen_status /
 // query_result contract.
 //
 // Auth: uses the existing `dreamina login` session (Douyin OAuth). No API key.
@@ -31,6 +31,8 @@ const GEN_SUBCOMMANDS = new Set([
   "text2image", "image2image", "image_upscale",
   "text2video", "image2video", "frames2video", "multiframe2video", "multimodal2video",
 ]);
+// Flags the image and video scripts pass through. Anything else is out of scope.
+const MEDIA_FLAG = /^(--prompt|--ratio|--resolution_type|--generate_num|--images|--image|--video_resolution|--model_version)(=|$)/;
 
 function parseArgs(argv) {
   const o = { sub: "", out: null, pollSec: 300, intervalSec: 4, dreamina: null, json: false, passthrough: [] };
@@ -44,11 +46,14 @@ function parseArgs(argv) {
       case "--dreamina": o.dreamina = argv[++i]; break;
       case "--json": o.json = true; break;
       case "-h": case "--help": printHelp(); process.exit(0);
-      default: o.passthrough.push(a); break; // forward to dreamina verbatim
+      default:
+        if (!MEDIA_FLAG.test(a)) die(2, `flag is outside image generation scope: ${a}. Allowed flags are prompt, ratio, resolution, images, and model.`);
+        o.passthrough.push(a);
+        break;
     }
   }
   if (!o.sub) die(2, "missing <subcommand> (e.g. text2image, image2video)");
-  if (!GEN_SUBCOMMANDS.has(o.sub)) warn(`'${o.sub}' is not a known generator subcommand; forwarding anyway. Known: ${[...GEN_SUBCOMMANDS].join(", ")}`);
+  if (!GEN_SUBCOMMANDS.has(o.sub)) die(2, `'${o.sub}' is outside image generation scope. Allowed: ${[...GEN_SUBCOMMANDS].join(", ")}`);
   o.out = o.out ? path.resolve(o.out) : path.resolve(process.cwd(), `jimeng-out-${o.sub}`);
   return o;
 }
