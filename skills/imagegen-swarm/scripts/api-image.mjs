@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
-import { STDIO_QUIET, markRunDir } from './safety.mjs';
+import { markRunDir } from './safety.mjs';
+import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 
 // 按次付费的 API 线路：订阅额度都见底时的最后一档，用多少算多少。
 // Config file: $HOME/.config/imagegen-swarm/api.json (override with IMAGE_GEN_API_CONFIG).
@@ -188,7 +189,7 @@ function parse(argv) {
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 function imgtool(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(PY, [path.join(here, 'imgtool.py'), ...args], { stdio: [STDIO_QUIET, "pipe", "pipe"] });
+    const child = spawn(PY, [path.join(here, 'imgtool.py'), ...args], { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE] });
     let out = '', err = '';
     child.stdout.on('data', d => { out += d; });
     child.stderr.on('data', d => { err += d; });

@@ -89,15 +89,15 @@ for (const rel of [
   "scripts/scoped-env.mjs",
   "scripts/safety.mjs",
   "scripts/shell-meta.mjs",
-  "references/jobs.example.json",
+  "scripts/stdio-modes.mjs",
+  "scripts/attempt-outcomes.mjs",
+  "scripts/batch-policy.mjs",
   "scripts/check.mjs",
   "references/codex.md",
   "references/lovart.md",
-  "references/lovart-lv.example.sh",
-  "evals/run.mjs",
-  "evals/evals.json",
   "SETUP.md",
   "skill-card.md",
+  ".clawhubignore",
 ]) {
   if (!existsSync(path.join(skillDir, rel))) {
     console.error(`skill is missing ${rel}`);

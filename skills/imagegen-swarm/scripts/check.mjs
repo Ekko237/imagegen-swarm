@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { childEnv } from "./scoped-env.mjs";
+import { STDIO_DISCARD, STDIO_PIPE } from "./stdio-modes.mjs";
 
 const ok = (m) => "  ✅ " + (m);
 const no = (m) => "  ❌ " + (m);
@@ -21,7 +22,7 @@ function turnedOff(engine) {
 function probe(bin, args, env) {
   return new Promise((res) => {
     let out = "";
-    const c = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], env: childEnv(env), shell: process.platform === "win32" && !path.isAbsolute(bin) });
+    const c = spawn(bin, args, { stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], env: childEnv(env), shell: process.platform === "win32" && !path.isAbsolute(bin) });
     c.on("error", () => res({ code: -1, out }));
     c.stdout.on("data", (d) => (out += d.toString()));
     c.stderr.on("data", (d) => (out += d.toString()));
@@ -32,7 +33,7 @@ function probe(bin, args, env) {
 async function resolveCodex() {
   if (process.env.CODEX_BIN && existsSync(process.env.CODEX_BIN)) return process.env.CODEX_BIN;
   const onPath = await new Promise((r) => {
-    const c = spawn("codex", ["--version"], { stdio: "ignore", shell: process.platform === "win32" });
+    const c = spawn("codex", ["--version"], { stdio: STDIO_DISCARD, shell: process.platform === "win32" });
     c.on("error", () => r(false));
     c.on("close", (code) => r(code === 0));
   });

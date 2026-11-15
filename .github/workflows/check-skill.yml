@@ -25,5 +25,5 @@ jobs:
       - name: Reliability tests
         run: |
           # reliability.test.mjs also launches batch.mjs and gemini-image.mjs through symlinks
-          node skills/imagegen-swarm/scripts/reliability.test.mjs
-          python3 skills/imagegen-swarm/scripts/reliability_rename_test.py
+          node tests/reliability.test.mjs
+          python3 tests/reliability_rename_test.py

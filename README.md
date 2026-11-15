@@ -181,10 +181,10 @@ Claude Code and Codex.
 <summary>Tests</summary>
 
 ```bash
-node skills/imagegen-swarm/evals/run.mjs out/                         # every fixed task, including a mixed batch
-node skills/imagegen-swarm/evals/run.mjs out/ --only gemini-t2i,batch-mixed
-node skills/imagegen-swarm/scripts/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
-python3 skills/imagegen-swarm/scripts/reliability_rename_test.py      # Muse rename does not block generation
+node tests/evals/run.mjs out/                         # every fixed task, including a mixed batch
+node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node tests/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
+python3 tests/reliability_rename_test.py      # Muse rename does not block generation
 ```
 
 </details>

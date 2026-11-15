@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs only after you set a budget."
-version: 1.2.6
+version: 1.2.7
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:
@@ -31,8 +31,10 @@ Batch image and video generation across the accounts you already have. The agent
 
 - Add a provider only after you name that provider and agree.
 - Paid images run only from `$HOME/.config/imagegen-swarm/api.json`, which you create. The cap is the configured estimate (`price_per_image` times images reserved in the batch, including ones still in flight), checked against `budget_per_batch` and `budget_per_month` before a paid image starts. The provider invoice can differ.
-- Muse clicks "Allow once" only for a save of this run's exact output file, or a create of that file's directory. Any other request stops. Ask before approving it.
-- On a Muse failure before the side-chat id is known, cleanup can remove a side chat created during that send window.
+- The output directory is created before Muse starts. Muse clicks "Allow once" for a save of this run's output file, or for creating exactly `/home/hatch/workspace/imagegen-swarm`. Paths are compared after `~`, `.`/`..`, and symlink resolution. Any other directory or path stops. Ask before approving it.
+- Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
+- `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
+- Lovart generation uploads only the reference files named for that job. It does not upload credentials or other local files.
 - Lovart renames a remote project when its name is empty, `Untitled`, or a short prefix of the project id. `project-add` and `project-rename` also rename the remote project when keys are present. The agent does not run those two commands unless you asked.
 
 ## Files this skill touches

@@ -4,7 +4,8 @@ import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STDIO_QUIET, markRunDir } from './safety.mjs';
+import { markRunDir } from './safety.mjs';
+import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 import { isInvokedDirectly } from './direct.mjs';
 
 const RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'];
@@ -40,7 +41,7 @@ function parse(argv) {
 
 function run(bin, args, cwd, limitMs = 60000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: [STDIO_QUIET, "pipe", "pipe"], shell: false });
+    const child = spawn(bin, args, { cwd, stdio: [STDIO_DISCARD, STDIO_PIPE, STDIO_PIPE], shell: false });
     let stdout = '', stderr = '', timedOut = false;
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });

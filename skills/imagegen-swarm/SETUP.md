@@ -96,7 +96,7 @@ so a real API error such as no credits is not replaced by a permissions failure.
 wrapper applies the same rule with `stat -c` on Linux and `stat -f` on macOS, and it also copies
 only those three names. It does not source the file.
 
-An optional wrapper is `references/lovart-lv.example.sh`. It runs `scripts/lovart_agent.py`. If you
+An optional wrapper is `examples/lovart-lv.example.sh` in the git repository (it is not part of the installed skill). It runs `scripts/lovart_agent.py`. If you
 copy the wrapper out of this folder, set `LOVART_AGENT_SKILL` to the copy of
 `scripts/lovart_agent.py` inside the skill. Check the key with the shipped client:
 

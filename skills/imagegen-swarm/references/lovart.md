@@ -26,7 +26,7 @@ node scripts/lovart.mjs --out shot.png --aspect 2:3 --ref product.jpg --prompt "
 `LOVART_SECRET_KEY`, and `LOVART_BASE_URL` are kept. A mode such as `644` is refused; `600` is
 accepted. When the mode cannot be read, the client still runs, so a real "no credits" response is
 not hidden behind a failed permission check. An optional wrapper,
-[lovart-lv.example.sh](lovart-lv.example.sh), runs the same entry file and copies only those three
+`examples/lovart-lv.example.sh` in the git repository (not shipped in the installed skill), runs the same entry file and copies only those three
 names. It does not source the file. It uses `stat -c %a` when GNU stat is available, and
 `stat -f %Lp` otherwise. Do not clone or execute a remote copy. See [SETUP.md](../SETUP.md).
 

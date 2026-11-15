@@ -1,22 +1,23 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { childEnv } from './scoped-env.mjs';
-import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from './safety.mjs';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { childEnv } from '../skills/imagegen-swarm/scripts/scoped-env.mjs';
+import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from '../skills/imagegen-swarm/scripts/safety.mjs';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { isInvokedDirectly } from './direct.mjs';
+import { isInvokedDirectly } from '../skills/imagegen-swarm/scripts/direct.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
-  failureText, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
-} from './batch.mjs';
-import { engineSpec, loadApiConfig, monthSpent, openaiSize } from './api-image.mjs';
+  failureText, medianSeconds, paidBudgetLeft, paidMayTake, prepareOutputDir, shouldSteal,
+} from '../skills/imagegen-swarm/scripts/batch.mjs';
+import { engineSpec, loadApiConfig, monthSpent, openaiSize } from '../skills/imagegen-swarm/scripts/api-image.mjs';
 import {
   extractGenerated, parseAgyReply, parseEncodedArg, parseToolArgs, parseTranscript, transcriptFile,
-} from './gemini-image.mjs';
+} from '../skills/imagegen-swarm/scripts/gemini-image.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const here = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'imagegen-swarm', 'scripts');
+const exampleWrapper = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'examples', 'lovart-lv.example.sh');
 let failed = 0;
 
 function check(name, fn) {
@@ -252,7 +253,7 @@ await checkAsync('lovart wrapper accepts mode 600 on Linux and still surfaces no
     await writeFile(envFile, 'export LOVART_ACCESS_KEY=ak_test\nexport LOVART_SECRET_KEY=sk_test\n');
     await chmod(envFile, 0o600);
     await writeFile(agent, 'import sys\nprint("no credits")\nsys.exit(3)\n');
-    await writeFile(wrapper, await readFile(path.join(here, '..', 'references', 'lovart-lv.example.sh')));
+    await writeFile(wrapper, await readFile(exampleWrapper));
     await chmod(wrapper, 0o755);
     const ok = await run(wrapper, ['chat'], { LOVART_ENV: envFile, LOVART_AGENT_SKILL: agent, HOME: dir });
     assert.equal(ok.code, 3, ok.stderr);
@@ -270,7 +271,7 @@ await checkAsync('lovart wrapper refuses group-readable credentials', async () =
     const wrapper = path.join(dir, 'lv');
     await writeFile(envFile, 'export LOVART_ACCESS_KEY=ak_test\nexport LOVART_SECRET_KEY=sk_test\n');
     await chmod(envFile, 0o644);
-    await writeFile(wrapper, await readFile(path.join(here, '..', 'references', 'lovart-lv.example.sh')));
+    await writeFile(wrapper, await readFile(exampleWrapper));
     await chmod(wrapper, 0o755);
     const denied = await run(wrapper, ['chat'], { LOVART_ENV: envFile, HOME: dir });
     assert.notEqual(denied.code, 0);
@@ -294,7 +295,7 @@ await checkAsync('BSD stat fallback still runs and does not mask no credits', as
     await writeFile(envFile, 'export LOVART_ACCESS_KEY=ak_test\nexport LOVART_SECRET_KEY=sk_test\n');
     await chmod(envFile, 0o600);
     await writeFile(agent, 'import sys\nprint("no credits")\nsys.exit(3)\n');
-    await writeFile(wrapper, await readFile(path.join(here, '..', 'references', 'lovart-lv.example.sh')));
+    await writeFile(wrapper, await readFile(exampleWrapper));
     await chmod(wrapper, 0o755);
     const ok = await run(wrapper, ['chat'], {
       LOVART_ENV: envFile,
@@ -305,6 +306,23 @@ await checkAsync('BSD stat fallback still runs and does not mask no credits', as
     assert.equal(ok.code, 3, "stdout=" + (ok.stdout) + " stderr=" + (ok.stderr));
     assert.match(ok.stdout, /no credits/);
     assert.doesNotMatch(ok.stderr, /Refusing to run/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('output directory is created and resolved before a job starts', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-out-'));
+  try {
+    const real = path.join(dir, 'real');
+    const link = path.join(dir, 'link');
+    const missing = path.join(dir, 'missing', 'nested');
+    await mkdir(real);
+    await symlink(real, link);
+    assert.equal(await prepareOutputDir(link), await realpath(real));
+    const created = await prepareOutputDir(missing);
+    assert.equal(created, await realpath(missing));
+    assert.equal(await realpath(path.dirname(created)), await realpath(path.join(dir, 'missing')));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
