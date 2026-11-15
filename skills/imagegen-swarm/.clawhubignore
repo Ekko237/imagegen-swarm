@@ -6,3 +6,6 @@ evals/
 **/*_test.py
 **/*.example.sh
 **/jobs.example.json
+# Exclude Python bytecode caches.
+__pycache__/
+*.pyc

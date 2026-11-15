@@ -200,13 +200,20 @@ async function main() {
   let lastErr = "unknown";
   const preExisting = await snapshotGeneratedImages();
   const outPreExisted = existsSync(o.out);
+  let outBefore = null;
+  if (outPreExisted) {
+    const info = await stat(o.out);
+    outBefore = { size: info.size, mtimeMs: info.mtimeMs, hash: await sha256(o.out) };
+  }
   for (let attempt = 1; attempt <= o.retries + 1; attempt++) {
     if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + "/" + (o.retries + 1) + " (sandbox=" + (o.sandbox) + ") -> " + (o.out) + "\n");
     const processResult = await runCodexExec(codex, instruction, o, outDir);
     await writeFile(path.join(logDir, "attempt-" + (attempt) + ".log"), processResult.stdout + "\n--- stderr ---\n" + processResult.stderr).catch(() => {});
     if (processResult.timedOut) { lastErr = "timeout after " + (o.timeoutMs) + "ms"; continue; }
     if (processResult.code === -1 || processResult.stderr.includes("not found: codex") || processResult.stderr.includes("command not found")) fail("codex_not_installed", "codex could not be launched: " + (processResult.stderr.slice(0, 300)));
-    if (existsSync(o.out) && await isPng(o.out)) {
+    const outputIsPng = existsSync(o.out) && await isPng(o.out);
+    const outputUnchanged = outputIsPng && outPreExisted && await sha256(o.out) === outBefore.hash;
+    if (outputIsPng && !outputUnchanged) {
       const stale = await findStaleSource(o.out, preExisting);
       if (stale) {
         lastErr = "rejected output: byte-identical to a pre-existing image (" + (stale) + ") — image_gen did not produce a new image this run";
@@ -222,7 +229,9 @@ async function main() {
       else process.stdout.write("OK  codex  " + (o.out) + "  (" + (s.size) + " bytes, " + (result.elapsed_seconds) + "s, attempt " + (attempt) + ")\n");
       process.exit(0);
     }
-    lastErr = processResult.code !== 0 ? "codex exec exited " + (processResult.code) + ": " + (processResult.stderr.slice(0, 200)) : "no valid PNG at " + (o.out) + " (agent may not have called image_gen, or sandbox blocked the write)";
+    lastErr = outputUnchanged
+      ? "no new PNG at " + (o.out) + ": the file is unchanged from before this run (codex exec exited " + (processResult.code) + ": " + (processResult.stderr.slice(0, 200)) + ")"
+      : processResult.code !== 0 ? "codex exec exited " + (processResult.code) + ": " + (processResult.stderr.slice(0, 200)) : "no valid PNG at " + (o.out) + " (agent may not have called image_gen, or sandbox blocked the write)";
     if (!o.json) process.stderr.write("[codex] attempt " + (attempt) + " failed: " + (lastErr) + "\n");
     const blocked = sandboxBlocked(processResult);
     const approved = userApprovedSandboxWiden();

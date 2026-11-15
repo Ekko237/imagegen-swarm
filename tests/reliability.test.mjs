@@ -244,6 +244,60 @@ function run(cmd, args, env, cwd) {
   });
 }
 
+for (const scenario of [
+  { name: 'rejects an old PNG after a failed exec', preExisting: true, action: '', code: 7, success: false },
+  { name: 'rejects an old PNG after a successful exec', preExisting: true, action: '', code: 0, success: false },
+  { name: 'rejects identical content with a changed mtime', preExisting: true, action: 'await utimes(out, 1, 1);', code: 0, success: false },
+  { name: 'accepts a newly created PNG', preExisting: false, action: 'await copyFile(fresh, out);', code: 0, success: true },
+  { name: 'accepts a changed PNG at an existing output path', preExisting: true, action: 'await copyFile(fresh, out);', code: 0, success: true },
+  { name: 'accepts changed content with the same size and restored mtime', preExisting: true, action: 'const before = await stat(out); await copyFile(fresh, out); await utimes(out, before.atime, before.mtime);', code: 0, success: true },
+]) {
+  await checkAsync('codex-image ' + scenario.name, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'codex-image-'));
+    try {
+      const out = path.join(dir, 'out.png');
+      const fresh = path.join(dir, 'fresh.png');
+      const codex = path.join(dir, 'fake-codex');
+      const codexHome = path.join(dir, '.codex');
+      const oldPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
+      const newPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC', 'base64');
+      await mkdir(path.join(codexHome, 'generated_images'), { recursive: true });
+      if (scenario.preExisting) await writeFile(out, oldPng);
+      await writeFile(fresh, newPng);
+      await writeFile(codex, `#!${process.execPath}
+const { copyFile, stat, utimes } = require('node:fs/promises');
+const out = ${JSON.stringify(out)};
+const fresh = ${JSON.stringify(fresh)};
+process.stdin.resume();
+process.stdin.on('end', async () => {
+  ${scenario.action}
+  process.exit(${scenario.code});
+});
+`);
+      await chmod(codex, 0o755);
+      const result = await run(process.execPath, [path.join(here, 'codex-image.mjs'),
+        '--prompt', 'test', '--out', out, '--codex', codex, '--retries', '0', '--json'],
+      { HOME: dir, CODEX_HOME: codexHome });
+      const report = JSON.parse(result.stdout.trim());
+      if (scenario.success) {
+        assert.equal(result.code, 0, result.stderr);
+        assert.equal(report.status, 'ok');
+        assert.equal(report.path, out);
+        assert.deepEqual(await readFile(out), newPng);
+      } else {
+        assert.notEqual(result.code, 0);
+        assert.equal(report.status, 'error');
+        assert.equal(report.error_kind, 'generation_failed');
+        assert.match(report.error, /no new PNG.*unchanged from before this run/);
+        assert.match(report.error, new RegExp('codex exec exited ' + scenario.code));
+        assert.deepEqual(await readFile(out), oldPng);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
 await checkAsync('lovart wrapper accepts mode 600 on Linux and still surfaces no credits', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'lv-wrap-'));
   try {
