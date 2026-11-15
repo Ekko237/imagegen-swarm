@@ -8,7 +8,6 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isInvokedDirectly } from "./direct.mjs";
 import { markRunDir } from "./safety.mjs";
-import { childEnv } from "./scoped-env.mjs";
 
 // 图片转换交给跨平台的 imgtool.py（Pillow）
 const PY = process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3");
@@ -47,7 +46,7 @@ function fail(msg, kind = "error") {
 function run(cmd, args, timeoutSec, extraEnv) {
   return new Promise((res) => {
     let out = "", err = "", killed = false;
-    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: childEnv(extraEnv) });
+    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: extraEnv ? { ...process.env, ...extraEnv } : process.env });
     const t = timeoutSec ? setTimeout(() => { killed = true; c.kill("SIGKILL"); }, timeoutSec * 1000) : null;
     c.on("error", (e) => { if (t) clearTimeout(t); res({ code: -1, out, err: err + e }); });
     c.stdout.on("data", (d) => (out += d));

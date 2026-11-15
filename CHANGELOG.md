@@ -4,7 +4,7 @@
 
 - **ClawHub scan follow-up. Image generation behavior is unchanged.** Docs, tool scope, and safety guards only. `scripts/muse-image.py` thread matching and the `scripts/batch.mjs` provider calls behave as in 1.2.4.
 - Codex generation reads only the `generated_images` subdirectory of `CODEX_HOME`, to reject a reused older file. `scripts/check.mjs` only tests whether `auth.json` exists.
-- Child processes receive the named environment variables documented in SKILL.md. The Lovart credentials file is not sourced; only `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and `LOVART_BASE_URL` are read.
+- The readiness check passes probes only the named environment variables documented in SKILL.md. Lovart generation keeps the batch environment. The credentials file is not sourced; only `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and `LOVART_BASE_URL` are read from it.
 - `allowed-tools` declares Bash, Read, Write, WebFetch, and Env.
 - Prompts and reference images are disclosed as being sent to the provider that runs the job. The agent must not send sensitive content without consent.
 - Config directories (Muse profile, Lovart state, pay-per-image ledger directory) are created only during explicit setup. SKILL.md lists what is stored, where, and why.

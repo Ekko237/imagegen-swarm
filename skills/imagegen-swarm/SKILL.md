@@ -180,9 +180,11 @@ The agent does not create these directories. The user creates them by running th
 | `CODEX_HOME/generated_images` | Codex itself, not this skill | Older generated images | Hash them and reject a reused file. Nothing else under `CODEX_HOME` is read |
 | `CODEX_HOME/auth.json` | `codex login` | Login state. `scripts/check.mjs` only tests that the file exists | Report whether Codex is logged in |
 
-Child processes receive `PATH`, `HOME`, temporary-directory variables, proxy and CA settings, and
-the variables named in the frontmatter above. They do not receive a copy of the whole environment.
-The Lovart credentials file is read as text; only the three names in the table are kept.
+`scripts/check.mjs` passes its probes only `PATH`, `HOME`, temporary-directory variables, proxy and
+CA settings, and the variables named in the frontmatter above. It does not copy the whole
+environment into those probes. A batch keeps the environment of the process that launched it, and
+Lovart generation does the same, adding the three credential names when they were read from the
+credentials file. That file is read as text; only the three names in the table are kept.
 
 ## Engines
 
