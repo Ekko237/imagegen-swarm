@@ -7,8 +7,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { markRunDir, sandboxMayWiden, userApprovedSandboxWiden } from "./safety.mjs";
-
-const SHELL_METACHAR = new RegExp("[;|&$<>\\n\\r()" + "'" + '"' + String.fromCharCode(96) + "]");
+import { SHELL_METACHAR } from "./shell-meta.mjs";
 
 function parseArgs(argv) {
   const o = {

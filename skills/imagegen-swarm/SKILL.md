@@ -260,7 +260,8 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   chat, send the task, wait, download from the cloud computer's file library, then delete that side
   chat. The browser profile is the directory named by `IMAGE_GEN_MUSE_PROFILE`, or
   `$HOME/.config/imagegen-swarm/muse-browser`. That directory is created only when the user runs
-  `scripts/muse-image.py --login`. Generation and `--list-chats` do not create it. Renaming the
+  `scripts/muse-image.py --login`. That login waits at most one hour for the composer
+  (`LOGIN_WAIT_MS`), above the 15 minute generation default. Generation and `--list-chats` do not create it. Renaming the
   side chat is best-effort: if the current side-chat row cannot be identified, or the rename dialog
   fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
   not rename a row it cannot prove is this side chat. On success it deletes only the side chat it
@@ -279,7 +280,8 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not
   prove there are credits. Default model `generate_image_nano_banana_pro`; change it with `--model`.
   If the client reports a pending confirmation, stop and ask the user; do not confirm a charge
-  yourself. During an image call, if the remote project's current name is empty, `Untitled`, or a
+  yourself. A chat waits at most one hour (`MAX_CHAT_SECONDS` in `scripts/lovart_client.py`), above
+  the 300 second batch default; a shorter `--timeout` is left as given. During an image call, if the remote project's current name is empty, `Untitled`, or a
   short prefix of the project id, the client renames that project to the first 30 characters of
   the prompt. A project that already has another name is left unchanged. `project-add` and
   `project-rename` update `$HOME/.lovart/state.json` and, when access keys are present, also send

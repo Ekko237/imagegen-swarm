@@ -83,10 +83,12 @@ if (codexPlugin.skills !== "./skills/") {
 for (const rel of [
   "scripts/batch.mjs",
   "scripts/lovart_agent.py",
+  "scripts/lovart_commands.py",
   "scripts/lovart_client.py",
   "scripts/lovart_state.py",
   "scripts/scoped-env.mjs",
   "scripts/safety.mjs",
+  "scripts/shell-meta.mjs",
   "references/jobs.example.json",
   "scripts/check.mjs",
   "references/codex.md",

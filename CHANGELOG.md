@@ -3,7 +3,8 @@
 ## 1.2.6 - 2026-11-15
 
 - **ClawHub scan follow-up. The unattended `node scripts/batch.mjs` run is unchanged.** Same provider calls, same environment inheritance, no new prompts, and no new failure on a machine that is already set up.
-- Scripts the scanner could only partly read are rewritten so a bounded parser can finish them. Template strings are ordinary concatenation, a shell-metacharacter check is the same character class, and a few mode names are built from character codes. Runtime values are the same.
+- Scripts the scanner could only partly read are rewritten so a bounded parser can finish them. Template strings are ordinary concatenation. Stdio mode names and command names stay plain string literals. The Codex shell-metacharacter check is the same character class, in `scripts/shell-meta.mjs`.
+- Lovart chat waits at most one hour (`MAX_CHAT_SECONDS`), above the 180s CLI default and the 300s batch default. Muse login waits at most one hour (`LOGIN_WAIT_MS`), above the 15 minute generation default. Shorter timeouts are unchanged.
 - `$HOME/.lovart/env`, `$HOME/.lovart/state.json`, and each file under `$HOME/.config/imagegen-swarm/` are named with what is read or written and why. Setup commands target those files.
 - The agent adds a provider only after the user names it and agrees. Paid caps are documented as the configured estimate, reserved before a call starts. Muse approval is a path filter, not a shell parser, and failure cleanup can remove a side chat created during the send window. Lovart renames a remote project only when its name is empty, `Untitled`, or a short id prefix, or when the user asked for `project-add` or `project-rename`.
 - `SKILL.md` frontmatter now includes homepage, emoji, and `requires.config`, and the folder includes `skill-card.md`.

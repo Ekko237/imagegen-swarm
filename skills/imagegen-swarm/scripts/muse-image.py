@@ -41,6 +41,8 @@ REMOTE_DIR = "/home/hatch/workspace/imagegen-swarm"
 RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9")
 THREAD_RE = re.compile(r"/thread/([0-9a-f-]{36})")
 IDLE_SECONDS = 8
+# Login waits until the composer is visible. One hour is above the 15 minute generation default.
+LOGIN_WAIT_MS = 3_600_000
 # 打开 /thread/<id> 之后侧栏可能还没画完当前行。只等一小会儿，对不上就放弃改名，不拖住出图。
 ROW_WAIT_SECONDS = 5
 
@@ -527,7 +529,7 @@ def main():
     if args.login:
         with browser(headless=False, create_profile=True) as page:
             page.goto(BASE + "/", wait_until="domcontentloaded")
-            composer(page).wait_for(state="visible", timeout=0)
+            composer(page).wait_for(state="visible", timeout=LOGIN_WAIT_MS)
         print(json.dumps({"status": "ok", "logged_in": True}))
         return
     if args.list_chats:

@@ -5,9 +5,8 @@ import path from "node:path";
 // directory only when the marker equals this run's id.
 export const RUN_MARKER_FILE = ".imagegen-swarm-run";
 
-// Node stdio mode for a stream that is not connected. Built from character
-// codes so the source does not contain a word a bounded parser reads as an instruction.
-export const STDIO_QUIET = String.fromCharCode(105, 103, 110, 111, 114, 101);
+// Node stdio mode: this stream is not piped to the parent.
+export const STDIO_QUIET = "ignore";
 
 export const WORK_NAME = /^\.(attempt-|codex-img-|gemini-image-|grok-image-|jimeng-image-|muse-image-|lovart-|api-image-)/;
 
