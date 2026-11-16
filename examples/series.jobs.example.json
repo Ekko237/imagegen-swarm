@@ -1,0 +1,13 @@
+{
+  "series": {
+    "style": "the same illustrated heroine, flat gouache, muted teal and cream, thick ink outlines, no text",
+    "threshold": 0.72,
+    "max_retries": 2,
+    "engines": ["jimeng", "gemini"],
+    "prefer": "consistent"
+  },
+  "jobs": [
+    {"id": "cover-1", "prompt": "the heroine at a rainy window", "aspect": "3:4"},
+    {"id": "cover-2", "prompt": "the heroine on a night train", "aspect": "3:4"}
+  ]
+}

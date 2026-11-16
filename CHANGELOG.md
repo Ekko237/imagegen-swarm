@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 - 2026-11-16
 
-- **The batch summary prints keep counts from this run's attempts.** `keep.generated` is an engine returning an image file, `keep.kept` is that file saved as the job output, `keep.redone` is a file dropped for an aspect ratio off by more than 3% and put back on the queue, `keep.duplicates` is a tail-steal copy that returned a file and was dropped, and `keep.resumed` is an output already on disk. Engine errors stay out of these counts. Routing, provider calls, and `elapsed_seconds` are unchanged. `elapsed_seconds` is generation time only.
+- **Series mode shares one style anchor and counts screening in delivery time.** `--series`, or `"series": true`, a `series` object, or a style string in the jobs file, appends one style guide to every prompt. Style reference images are attached where the engine has room. Otherwise the log records `style_text_only` or `style_refs_partial`. After each image, Pillow scores a 64×64 palette histogram (weight 0.8) and a 4×4 luminance grid (weight 0.2). Scores below the threshold (default 0.72) are discarded and requeued, preferring the engine with the best mean so far, up to `max_retries` (default 2). `series.engines` can limit the batch to fewer engines.
+- `keep.style_redos` counts files discarded for a low style score. `generated` is `kept` + `redone` + `duplicates` + `style_redos`. `redone` is still an aspect-ratio discard. `elapsed_seconds` is still generation time only. `delivery_seconds` is the wall clock through the summary, including style screening and style redos.
+- Keep counts from this run's attempts remain: `generated` (an engine returned an image file), `kept` (that file was saved), `redone` (aspect ratio off by more than 3%), `duplicates` (a tail-steal copy that was dropped), and `resumed` (the output was already on disk). Engine errors stay out of these counts.
+- On solid-color fixtures, an identical image scores 1 and a complementary color scores 0.2. A multi-engine series keep rate was not measured.
 
 ## 1.2.10 - 2026-11-15
 

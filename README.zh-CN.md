@@ -172,21 +172,24 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 | `kept` | 通过自动检查后，存成 `out/<id>.png`（视频是 `.mp4`）的张数 |
 | `redone` | 交回的图因为比例偏差超过 3% 被丢掉，退回队列重做的次数 |
 | `duplicates` | 抢尾单多做出来的文件。先做完的那份算进 `kept`，另一份丢掉 |
+| `style_redos` | 系列模式里风格分低于阈值、文件被丢掉的次数。没开系列模式时是 0 |
 | `resumed` | 输出文件已经在磁盘上，这次跳过的任务。不算进 `generated` |
 
-`generated` 等于 `kept` + `redone` + `duplicates`。引擎报错、超时、额度用完时没有文件，不进 `keep`。这张图仍会换一家再试，最多 `--tries` 家（默认 3）。同一份摘要里的 `done` 是存下来的任务加上跳过的任务。`elapsed_seconds` 只算生成时间。
+`generated` 等于 `kept` + `redone` + `duplicates` + `style_redos`。引擎报错、超时、额度用完时没有文件，不进 `keep`。这张图仍会换一家再试，最多 `--tries` 家（默认 3）。同一份摘要里的 `done` 是存下来的任务加上跳过的任务。`elapsed_seconds` 只算生成时间。`delivery_seconds` 是写到摘要为止的墙钟，系列模式里含风格打分和风格重做。
 
-`keep` 只覆盖自动检查：文件是这一次新生成的，不是参考图原样，而且任务写了比例时偏差在 3% 以内。它不是风格分。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
+`keep` 覆盖这些自动检查：文件是这一次新生成的，不是参考图原样，任务写了比例时偏差在 3% 以内，系列模式里调色板分还要达到阈值。调色板分不判断是不是同一个人。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
 
-同一角色、同一品牌要自己量风格保留率：
+同一角色、同一品牌或一套封面，用[系列模式](skills/imagegen-swarm/SKILL.md#series-mode)。同一段风格说明发给每一家引擎，偏低的图会重做，次数在 `keep.style_redos`，打分和重做的时间在 `delivery_seconds`。这个分数只比较调色板，不认人物，交付前仍要逐张看。
+
+不开系列模式时，风格保留率要自己量：
 
 1. 跑完这一批。
 2. 读 `keep`，那是自动计数。
 3. 每张都看一遍，数你愿意交付的张数。这就是你的可用数。
 4. 删掉不要的，用同一份清单再跑。磁盘上还在的文件会跳过。给不合的那张另开一条任务也一样。每张换掉的都算重做。
-5. 把看图和重做花的时间加到 `elapsed_seconds` 上。加总才是交付时间。
+5. 把看图和重做花的时间加到 `elapsed_seconds` 上。加总才是交付时间。系列模式把同类的总时间记在 `delivery_seconds`。
 
-同一角色、同一品牌的封面，要把筛图和重做算进交付时间。单独的 `elapsed_seconds` 只是生成时间。
+单独的 `elapsed_seconds` 只是生成时间。上面那 50 张没有测出来的保留率。
 
 ## 样例输出
 
@@ -208,11 +211,11 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 **不同模型画出来，风格会一致吗？**
 
-队列不会把风格锁在各家引擎之间。每张图只有自己的 `prompt`，可选的 `ref`，可选的 `aspect`。哪条通道接得了，就由它画，所以一批图常常分给不同的模型。没有共用的风格说明，没有角色锁定，也没有一步拿新图去对整批的风格。
+默认不会。每张图只有自己的 `prompt`、可选的 `ref` 和 `aspect`。哪条通道接得了，就由它画，所以一批图常常分给不同的模型。
 
-参考图按任务单独传，而且只传给画这张图的那家引擎。做一系列时，每张都写同一段风格提示，并带上同一组 `ref`。即梦最多 10 张参考图，Gemini 最多 3 张，Grok 1 张。Codex、Muse、Lovart 按这条任务列出的参考图接收。Gemini 可能会改写提示词，结果里的 `prompt_verbatim` 就是 `false`。Codex、Lovart、Muse 的比例是写进提示词的文字。即梦、Grok、Gemini 和可选的 API 线路把比例当成真实参数。
+同一角色、同一品牌或一套封面，用系列模式（`--series`，或在任务文件里写 `"series": true`）。同一段风格说明发给每一家引擎，参考图在引擎还有空位时附上，调色板分偏低的图会重做。`delivery_seconds` 含打分和这些重做。参数和分数见 [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode)。
 
-同一角色或同一品牌：写一段共用的风格提示，每张都带同一张参考图，然后逐张筛，不合的再生成。想让它们留在同一家模型上，就在这些任务里写上 `"engine"`。自动重做只覆盖比例不对、这一次失败、以及交回的是旧文件。风格不合，要等你筛过之后自己重做。
+即梦最多 10 张参考图，Gemini 最多 3 张，Grok 1 张。Gemini 可能会改写提示词，结果里的 `prompt_verbatim` 就是 `false`。
 
 **额度用完会怎样？**
 
@@ -232,6 +235,7 @@ Claude Code 和 Codex。
 ```bash
 node tests/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
 node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
+node tests/series.test.mjs                    # 系列模式、假引擎、调色板分数
 ```
 
 </details>
