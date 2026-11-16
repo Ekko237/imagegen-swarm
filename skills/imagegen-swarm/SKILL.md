@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
-description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.2.10
+description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For the same character, the same brand, or a cover series, use series mode so every engine shares one style anchor. Not for crop, resize, convert, or other ordinary local image processing."
+version: 1.3.0
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -104,7 +104,8 @@ only the permission that command needs.
 The core is work-stealing: write the images you need as a job list and hand it to
 `scripts/batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free
 takes the next image it can handle, so every engine's quota is used and generation finishes as
-fast as possible. That clock is generation time only. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
+fast as possible. That clock is generation time only. For a same-character, same-brand, or cover
+series, use [series mode](#series-mode) so every engine gets the same style guide. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
 and if that engine is out of quota the next one does. A configured pay-per-image line takes a
 job in two cases: the job names `api`, or no enabled subscription engine can take that job.
 
@@ -114,7 +115,9 @@ pay-per-image setup). Lovart generation uploads only the reference files named i
 list (or `--ref` on a single call). `scripts/lovart.mjs` passes each of those paths to
 `upload --file`, and `upload_file` sends that one file to Lovart's CDN. It does not upload the
 credentials file, the state file, or any path the user did not name. The `upload` command does the
-same for the single `--file` the user gave it. Do not send sensitive, confidential, or personal
+same for the single `--file` the user gave it. In series mode, the shared style guide and any series
+reference images are sent to every engine that runs a job in that batch, the same way a job prompt
+and a job reference are. Do not send sensitive, confidential, or personal
 content unless the user has agreed that this provider may see it. Add another provider only after
 the user names that provider and agrees.
 
@@ -141,7 +144,7 @@ it stopped.
   slower engine just started. At most one duplicate runs. Whichever finishes first is kept; the
   other is cancelled (SIGINT to the process group, or a cancel file for Muse) or ignored if it
   finishes later. The results file in the output directory lists every attempt with start, finish and outcome (done,
-  cancelled, failed).
+  cancelled, failed, style_redo, style_rejected).
 - An engine that reports exhausted quota, no login or no install is shut down immediately, and the
   image it held goes back to the queue. A plain rate limit (HTTP 429, `rate limit`, or
   `RESOURCE_EXHAUSTED` without an explicit quota or credit failure) backs off and is shut down only
@@ -156,10 +159,13 @@ it stopped.
   took. The summary `keep` object counts this run only: `generated` (the engine returned an image
   file), `kept` (that file was saved as the job output), `redone` (the file was dropped because the
   aspect ratio was off by more than 3% and the job went back on the queue), `duplicates` (a tail-steal
-  copy returned a file and was dropped), and `resumed` (the output was already on disk and was
-  skipped). An engine error is not an image, so it is not in those counts. `elapsed_seconds` is
-  generation time only: it ends when the last file is written, and it does not include time spent
-  looking at the images or regenerating ones that miss a character or a brand. Exit code is
+  copy returned a file and was dropped), `style_redos` (the file was dropped because its series style
+  score was below the threshold, including a last discard that was not queued again), and `resumed`
+  (the output was already on disk and was skipped). `generated` adds up as `kept` + `redone` +
+  `duplicates` + `style_redos`. An engine error is not an image, so it is not in those counts.
+  `elapsed_seconds` is generation time only: it ends when the last engine attempt finishes, before
+  the style score. `delivery_seconds` is the wall clock from the start of the batch until the
+  summary, so in series mode it includes style screening and style redos. Exit code is
   non-zero if anything failed.
 - At the end of a run, batch deletes only the temporary files it created and the work directories
   that contain this run's marker (`IMAGE_GEN_RUN_ID`). Directories left by another run are left in
@@ -323,6 +329,88 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
 Every engine checks that the returned image is new from this run and differs from the reference
 images after decoding, and converts non-PNG output to PNG.
 
+## Series mode
+
+Use series mode when the images are one series: the same character, the same brand, or a set of
+covers. Leave it off when each image is its own asset. The default queue does not lock a style, and
+mixing engines makes that drift more likely.
+
+Turn it on with `--series`, or with `"series": true`, a `series` object, or a style string in the
+jobs file. The job `prompt` stays the subject. Do not copy the style guide into every prompt. Batch
+appends the same style guide to every image and video prompt, for every engine:
+
+```
+STYLE GUIDE (apply to every image in this series; do not change the subject):
+<the style text>
+```
+
+```bash
+node scripts/batch.mjs --jobs jobs.json --out out/ --series --style-file style.txt --style-ref anchors/hero.png
+```
+
+```json
+{
+  "series": {
+    "style": "the same illustrated heroine, flat gouache, muted teal and cream, thick ink outlines, no text",
+    "ref": ["anchors/hero.png"],
+    "threshold": 0.72,
+    "max_retries": 2,
+    "engines": ["jimeng", "gemini"],
+    "prefer": "consistent"
+  },
+  "jobs": [
+    {"id": "cover-1", "prompt": "the heroine at a rainy window", "aspect": "3:4"},
+    {"id": "cover-2", "prompt": "the heroine on a night train", "aspect": "3:4"}
+  ]
+}
+```
+
+`ref` paths are relative to the job file. A sample file lives in the git repository at
+`examples/series.jobs.example.json`; it is not part of the installed skill.
+
+Style reference images are placed in front of the job's own references, and only as far as that
+engine's limit (Jimeng 10, Gemini 3, Grok 1; Codex, Muse, and Lovart take the references they are
+given; the paid line uses its configured limit). A video job does not take a style image, because
+that slot is the motion source. When the slot is already full, that engine gets the style text
+only. The first time this happens, the log has `style_text_only` (no style image attached) or
+`style_refs_partial` (some of the style images attached). The summary lists those engines.
+
+After an engine writes an image, batch scores it locally with Pillow (`imgtool.py style`). There is
+no CLIP model and no network call. The method is `palette-histogram`: resize to 64×64, then
+0.8 × the cosine similarity of an 8-bin joint RGB histogram, plus 0.2 × the cosine similarity of a
+4×4 luminance grid. The score is from 0 to 1. On solid-color fixtures, an identical image scores 1
+and a complementary color scores 0.2. A real multi-engine series was not measured. The default
+threshold is 0.72 (`--style-threshold` or `series.threshold`).
+
+With style reference images, every output is scored against each reference and the highest of
+those scores is used. With text only, the first kept image becomes the visual anchor and is not
+scored. Later images are scored against that file.
+
+A score below the threshold deletes the file and queues the job again, up to `max_retries` (default
+2, `--style-retries`). Those discards are `keep.style_redos`, including a last discard that is not
+queued again. The job then fails. The same engine may run the redo. While `prefer` is
+`consistent` (the default), a lane leaves the job for the engine with the highest mean score so
+far when that engine has a free lane. `engines` (`--series-engines`) limits the series to that
+list. `prefer: "off"` keeps the full swarm and still screens.
+
+`elapsed_seconds` stays generation time. `delivery_seconds` is the wall clock through the summary,
+including style screening and style redos. Both are on the summary line and in
+`out/batch-results.json`, with each kept image's `style_score`.
+
+Screening does not recognize a face, a character, or a logo. Look at every kept image before
+delivering it. An output that already exists is skipped and is not scored. Grok and Jimeng treat a
+reference as an edit, so one style reference turns a text-to-image call into an edit. A Grok edit
+keeps the source aspect ratio.
+
+| Option | Jobs file | CLI | Default |
+|---|---|---|---|
+| style text | `series.style`, or `series` as a string | `--style` or `--style-file` | required when series mode is on |
+| reference images | `series.ref` | `--style-ref`, repeatable | none |
+| threshold | `series.threshold` | `--style-threshold` | 0.72 |
+| retries | `series.max_retries` | `--style-retries` | 2 |
+| engines | `series.engines` | `--series-engines` | every engine in this batch |
+| routing | `series.prefer` | `--series-prefer consistent` or `off` | `consistent` |
+
 ## When no script engine can take the image
 
 If the api line is configured, in this batch's engine list, and has budget left, `batch.mjs` already
@@ -336,9 +424,10 @@ the user named fails, report it instead of switching to the web.
 - `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits).
   With the api line configured, it checks the key against the free model-list endpoint and shows
   this month's spend and budget.
-- After changing a script, run `node tests/reliability.test.mjs` from the git repository first
-  (no images, no cost; it runs `batch.mjs` for real to check when the paid line does and does not
-  take an image). That test is not part of the installed skill.
+- After changing a script, run `node tests/reliability.test.mjs` and `node tests/series.test.mjs`
+  from the git repository first (no paid images; series tests use mock engines and solid-color
+  fixtures). `reliability.test.mjs` runs `batch.mjs` for real to check when the paid line does and
+  does not take an image. Those tests are not part of the installed skill.
 - Look at every image before delivering it; sample frames from videos.
 - The fixed image tasks live in the git repository at `tests/evals/`, not in the installed skill.
   `node tests/evals/run.mjs <outdir> [--only id,id]` checks status, aspect ratio, prompt passthrough

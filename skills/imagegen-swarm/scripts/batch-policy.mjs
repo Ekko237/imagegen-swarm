@@ -65,14 +65,17 @@ export function paidBudgetLeft({ price, committed, budgetBatch, monthSpent, budg
 }
 
 // 这一轮交回的图：generated 是引擎写出了文件的次数，kept 是收成正式文件的次数，
-// redone 是比例不合格被丢掉、退回队列重做的次数，duplicates 是抢尾单多做且后来丢掉的次数。
+// redone 是比例不合格被丢掉、退回队列重做的次数，duplicates 是抢尾单多做且后来丢掉的次数，
+// style_redos 是风格分低于阈值、文件被丢掉的次数（含最后一次不再退回队列的）。
+// generated = kept + redone + duplicates + style_redos。
 // 引擎报错、超时、额度用完没有文件，不进这些数。
 export function keepCounts(attempts) {
-  const counts = { generated: 0, kept: 0, redone: 0, duplicates: 0 };
+  const counts = { generated: 0, kept: 0, redone: 0, duplicates: 0, style_redos: 0 };
   for (const attempt of attempts ?? []) {
     if (!attempt?.produced) continue;
     counts.generated++;
     if (attempt.outcome === "done") counts.kept++;
+    else if (attempt.outcome === "style_redo" || attempt.outcome === "style_rejected") counts.style_redos++;
     else if (attempt.outcome === "failed") counts.redone++;
     else if (attempt.outcome === "cancelled") counts.duplicates++;
   }

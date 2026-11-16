@@ -92,6 +92,7 @@ for (const rel of [
   "scripts/stdio-modes.mjs",
   "scripts/attempt-outcomes.mjs",
   "scripts/batch-policy.mjs",
+  "scripts/series-policy.mjs",
   "scripts/check.mjs",
   "references/codex.md",
   "references/lovart.md",

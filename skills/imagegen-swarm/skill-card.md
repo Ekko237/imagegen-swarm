@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs when a job names it, or when no enabled subscription engine can take that job, and only after you set a budget."
-version: 1.2.10
+version: 1.3.0
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:
@@ -35,6 +35,7 @@ Batch image and video generation across the accounts you already have. The agent
 - Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
 - `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
 - Lovart generation uploads only the reference files named for that job. It does not upload credentials or other local files.
+- Series mode sends the shared style guide, and any series reference images, to each engine that runs a job in that batch.
 - Lovart renames a remote project when its name is empty, `Untitled`, or a short prefix of the project id. `project-add` and `project-rename` also rename the remote project when keys are present. The agent does not run those two commands unless you asked.
 
 ## Files this skill touches

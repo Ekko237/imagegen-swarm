@@ -22,8 +22,11 @@ jobs:
             node --check "$f"
           done
           python3 -m py_compile skills/imagegen-swarm/scripts/*.py
+      - name: Install Pillow
+        run: python3 -m pip install pillow
       - name: Reliability tests
         run: |
           # reliability.test.mjs also launches batch.mjs and gemini-image.mjs through symlinks
           node tests/reliability.test.mjs
+          node tests/series.test.mjs
           python3 tests/reliability_rename_test.py

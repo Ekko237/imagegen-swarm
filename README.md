@@ -165,21 +165,24 @@ After a batch, the last JSON line and `out/batch-results.json` include `keep`, c
 | `kept` | Those files saved as `out/<id>.png` (`.mp4` for video) after the automatic checks |
 | `redone` | Returned files dropped because the aspect ratio was off by more than 3%, then put back on the queue |
 | `duplicates` | Extra files from a tail steal. The first copy to finish is the one in `kept`; the other is dropped |
+| `style_redos` | Returned files dropped because a series-mode style score was below the threshold. This is 0 when series mode is off |
 | `resumed` | Jobs skipped because the output file was already on disk. These sit outside `generated` |
 
-`generated` adds up as `kept` + `redone` + `duplicates`. An engine error, a timeout, or a quota failure returns no file, so it stays out of `keep`. The job is still retried on another engine, up to `--tries` (default 3). `done` on the same summary is saved jobs plus resumed jobs. `elapsed_seconds` is generation time only.
+`generated` adds up as `kept` + `redone` + `duplicates` + `style_redos`. An engine error, a timeout, or a quota failure returns no file, so it stays out of `keep`. The job is still retried on another engine, up to `--tries` (default 3). `done` on the same summary is saved jobs plus resumed jobs. `elapsed_seconds` is generation time only. `delivery_seconds` is the wall clock until the summary, and in series mode that includes style screening and style redos.
 
-`keep` is that automatic check: the file is new from this run, it is not a copy of a reference image, and the aspect ratio is within 3% when the job set one. It is not a style score. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
+`keep` counts those automatic checks: the file is new from this run, it is not a copy of a reference image, the aspect ratio is within 3% when the job set one, and, in series mode, the palette score is at least the threshold. The palette score does not judge character identity. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
 
-To measure a style keep rate for a same-character or same-brand set:
+For a same-character, same-brand, or cover series, run [series mode](skills/imagegen-swarm/SKILL.md#series-mode). It sends one style guide to every engine, scores each image, redoes the outliers, and records that work in `keep.style_redos` and `delivery_seconds`. The score is a local palette comparison, not a judgment of character identity, so still look at every kept file.
+
+To measure a style keep rate without series mode:
 
 1. Run the batch.
 2. Read `keep` for the automatic counts.
 3. Look at every file and count how many you would ship. That count is your usable number.
 4. Delete the files you reject and run the same job list again. Files still on disk are skipped. A new job for an outlier works the same way. Each replacement is a redo.
-5. Add the time you spent screening and regenerating to `elapsed_seconds`. That sum is delivery time.
+5. Add the time you spent screening and regenerating to `elapsed_seconds`. That sum is delivery time. Series mode records the same kind of total as `delivery_seconds`.
 
-For same-character or same-brand covers, put screening and redo time into delivery time. `elapsed_seconds` alone is generation time only.
+`elapsed_seconds` alone is generation time only. The 50-image chart has no measured keep rate.
 
 You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
 
@@ -203,11 +206,11 @@ The skill contains no accounts or keys. Each engine stores its login in its own 
 
 **Will styles stay consistent across models?**
 
-The queue does not lock a style across engines. Each job carries its own `prompt`, an optional `ref` list, and an optional `aspect`. A free lane that can take the job runs it, so one batch is often split across models. There is no shared style guide, no character lock, and no step that compares a new image with the rest of the batch.
+Not by default. Each job carries its own `prompt`, an optional `ref` list, and an optional `aspect`, and a free lane that can take the job runs it, so one batch is often split across models.
 
-Reference images are per job, and they go only to the engine that runs that job. For a series, put the same style wording and the same `ref` files on every job. Jimeng takes up to 10 references, Gemini up to 3, and Grok one. Codex, Muse, and Lovart take the references listed on the job. Gemini may rewrite the prompt; its result then has `prompt_verbatim: false`. Codex, Lovart, and Muse receive the aspect ratio as text added to the prompt. Jimeng, Grok, Gemini, and the optional API line send aspect ratio as a real parameter.
+For the same character, the same brand, or a cover series, use series mode (`--series`, or `"series": true` in the job file). One style guide is sent to every engine, style reference images are attached where the engine has room, and a low palette score is redone. `delivery_seconds` includes that screening and those redos. Details, limits, and the score are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
 
-For a same-character or same-brand set, write one shared style prompt, attach one reference image on every job, screen the files, and regenerate the outliers. Set `"engine"` on those jobs when you want them to stay on one model. The automatic redo covers a wrong aspect ratio, a failed attempt, and a stale file. A style mismatch waits until you screen it.
+Jimeng takes up to 10 references, Gemini up to 3, and Grok one. Gemini may rewrite the prompt; its result then has `prompt_verbatim: false`.
 
 **What happens when a quota runs out?**
 
@@ -228,6 +231,7 @@ Claude Code and Codex.
 node tests/evals/run.mjs out/                         # every fixed task, including a mixed batch
 node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 node tests/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
+node tests/series.test.mjs                    # series anchor, mock engines, palette score
 python3 tests/reliability_rename_test.py      # Muse rename does not block generation
 ```
 

@@ -12,6 +12,10 @@ import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, failureText,
   keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
+import {
+  recordStyleScore, resolveSeriesConfig, splitJobsDocument, styleMeans, stylePrompt,
+  styleRefsForEngine, styleRouteAllows, takeStyleScreen,
+} from './series-policy.mjs';
 import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
 import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 
@@ -73,16 +77,24 @@ const DEFAULT_LANES = Object.fromEntries(Object.entries(BASE_LANES).map(([engine
 // API 线路只发网络请求，不占内存，通道数照配置文件的 lanes（默认 4）
 if (API) DEFAULT_LANES.api = API.lanes;
 function parse(argv) {
-  const o = { engines: Object.keys(ENGINES), lanes: { ...DEFAULT_LANES }, tries: 3 };
+  const o = {
+    engines: Object.keys(ENGINES), lanes: { ...DEFAULT_LANES }, tries: 3, series: false,
+    style: null, styleFile: null, styleRefs: [], styleThreshold: null, styleRetries: null,
+    seriesEngines: null, seriesPrefer: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') {
       console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse,api] [--lanes gemini=2,muse=1] [--tries 3]\n' +
+        '[--series] [--style <text> | --style-file <path>] [--style-ref <image>]... [--style-threshold 0.72] [--style-retries 2]\n' +
+        '[--series-engines gemini,jimeng] [--series-prefer consistent|off]\n' +
         'api is the pay-per-image last resort. It runs only after the user sets it up (see SETUP.md).\n' +
         'It spends price_per_image on images in this job list that no subscription engine can take, and stops at the budgets in that setup.\n' +
-        'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）');
+        'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）\n' +
+        'Series mode also accepts {"series": true, "style": "...", "ref": ["anchor.png"], "jobs": [ ... ]}.');
       process.exit(0);
     }
+    if (flag === '--series') { o.series = true; continue; }
     const value = argv[++i];
     if (!value) throw new Error("missing value for " + (flag));
     if (flag === '--jobs') o.jobs = path.resolve(value);
@@ -90,6 +102,13 @@ function parse(argv) {
     else if (flag === '--engines') o.engines = value.split(',');
     else if (flag === '--lanes') for (const pair of value.split(',')) { const [k, n] = pair.split('='); o.lanes[k] = Number(n); }
     else if (flag === '--tries') o.tries = Number(value);
+    else if (flag === '--style') o.style = value;
+    else if (flag === '--style-file') o.styleFile = path.resolve(value);
+    else if (flag === '--style-ref') o.styleRefs.push(path.resolve(value));
+    else if (flag === '--style-threshold') o.styleThreshold = value;
+    else if (flag === '--style-retries') o.styleRetries = value;
+    else if (flag === '--series-engines') o.seriesEngines = value.split(',').map(name => name.trim()).filter(Boolean);
+    else if (flag === '--series-prefer') o.seriesPrefer = value;
     else throw new Error("invalid argument: " + (flag));
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
@@ -99,6 +118,14 @@ function parse(argv) {
   }
   o.engines = o.engines.filter(e => !OFF.includes(e));
   return o;
+}
+
+// Tests point this at fake engine scripts. A normal run always uses this folder.
+function engineScript(name) {
+  const root = process.env.IMAGE_GEN_TEST_SCRIPTS === 'yes' && process.env.IMAGE_GEN_SCRIPT_DIR
+    ? process.env.IMAGE_GEN_SCRIPT_DIR
+    : here;
+  return path.join(root, name);
 }
 
 function runProcess(bin, args, onChild) {
@@ -116,6 +143,13 @@ function runProcess(bin, args, onChild) {
 
 // 清单写了比例的图，交回的宽高比差超过 3% 就不算数（codex、lovart、muse 的比例只写在说明里，偶尔不照做）
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+async function scoreStyle(file, anchors) {
+  const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'style', file, ...anchors]);
+  if (r.code !== 0) throw new Error("imgtool style failed on " + (file) + ": " + (r.stderr));
+  const score = Number(JSON.parse(r.stdout).score);
+  if (!Number.isFinite(score)) throw new Error("imgtool style returned no score");
+  return score;
+}
 async function ratioOff(file, aspect) {
   const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'size', file]);
   if (r.code !== 0) throw new Error("imgtool size failed on " + (file) + ": " + (r.stderr));
@@ -137,7 +171,20 @@ async function main() {
   const runId = process.env.IMAGE_GEN_RUN_ID;
   const ownedNames = new Set();
   const o = parse(process.argv.slice(2));
-  const jobs = JSON.parse(await readFile(o.jobs, 'utf8'));
+  const raw = JSON.parse(await readFile(o.jobs, 'utf8'));
+  const split = splitJobsDocument(raw);
+  if (o.style && o.styleFile) throw new Error('pass --style or --style-file, not both');
+  const styleText = o.styleFile ? await readFile(o.styleFile, 'utf8') : o.style;
+  const series = resolveSeriesConfig({
+    flag: o.series, fileSeries: split.series, root: split.root,
+    cli: {
+      style: styleText, threshold: o.styleThreshold, maxRetries: o.styleRetries,
+      engines: o.seriesEngines, prefer: o.seriesPrefer, refs: o.styleRefs,
+    },
+  });
+  const seriesOptions = o.style || o.styleFile || o.styleRefs.length || o.seriesEngines || o.styleThreshold || o.styleRetries || o.seriesPrefer;
+  if (!series.enabled && seriesOptions) throw new Error('series options need --series, or "series" in the jobs file');
+  const jobs = split.jobs;
   const base = path.dirname(o.jobs);
   const ids = new Set();
   for (const job of jobs) {
@@ -146,6 +193,25 @@ async function main() {
     ids.add(job.id);
     job.ref = (job.ref ?? []).map(r => path.resolve(base, r));
     job.tried = [];
+    job.active = [];
+    job.styleRedos = 0;
+  }
+  if (series.enabled) {
+    series.stats = {};
+    series.visualAnchor = null;
+    series.anchorJob = null;
+    series.textOnly = new Set();
+    series.partial = new Set();
+    series.styleRefs = series.styleRefs.map(ref => path.isAbsolute(ref) ? ref : path.resolve(base, ref));
+    for (const ref of series.styleRefs) {
+      if (!existsSync(ref)) throw new Error("series reference not found: " + (ref));
+    }
+    if (series.engines) {
+      for (const name of series.engines) if (!ENGINES[name]) throw new Error("unknown series engine: " + (name));
+      const available = series.engines.filter(name => o.engines.includes(name));
+      if (!available.length) throw new Error("series engines are not in this batch: " + (series.engines.join(',')));
+      series.engines = available;
+    }
   }
   o.out = await prepareOutputDir(o.out);
   for (const job of jobs) job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
@@ -167,10 +233,28 @@ async function main() {
       && job.ref.length <= e.maxRefs && (!job.video || job.ref.length > 0 || e.textVideo);
   };
   // 订阅引擎还在限流退避也算接得了：付费线路等它，不为了快去花钱
-  const fits = (engine, job) => capable(engine, job) && (!ENGINES[engine].paid || paidMayTake({
+  const fitsCore = (engine, job) => capable(engine, job) && (!ENGINES[engine].paid || paidMayTake({
     named: job.engine === engine,
     subscriptionCanTake: o.engines.some(other => !ENGINES[other].paid && capable(other, job)),
   }));
+  const engineBusy = engine => jobs.reduce((n, job) => n + job.active.filter(active => active.engine === engine).length, 0);
+  const styleAllows = (engine, job) => {
+    if (!series.enabled) return true;
+    const fitting = [];
+    const free = {};
+    for (const name of o.engines) {
+      if (!fitsCore(name, job)) continue;
+      if ((rateBackoffUntil.get(name) ?? 0) > Date.now()) continue;
+      fitting.push(name);
+      const lanes = o.lanes[name] ?? 0;
+      free[name] = lanes > 0 && engineBusy(name) < lanes;
+    }
+    return styleRouteAllows({
+      enabled: true, video: Boolean(job.video), engine, allowedEngines: series.engines,
+      prefer: series.prefer, scores: series.stats, fitting, free,
+    });
+  };
+  const fits = (engine, job) => fitsCore(engine, job) && styleAllows(engine, job);
   const monthAtStart = API ? readLedger().usd : 0;
   let paidCommitted = 0;
   // 没有任何还开着、还没试过的引擎能接的活，判定失败
@@ -212,14 +296,28 @@ async function main() {
     // 先写临时文件，赢了才改成正式文件名
     const temp = path.join(o.out, ".attempt-" + (job.id) + "-" + (engine) + "-" + (serial++) + (path.extname(job.file)));
     ownedNames.add(path.basename(temp));
-    const script = path.join(here, e.script);
+    const script = engineScript(e.script);
     // The parent of the temp output exists before Muse (or any other engine) is started.
     await prepareOutputDir(path.dirname(temp));
     // Muse 不能用信号停（它的浏览器库收到中断会卡住），改用取消文件
     record.cancelFile = engine === 'muse' ? (temp) + ".cancel" : null;
     if (record.cancelFile) ownedNames.add(path.basename(record.cancelFile));
-    const args = [script, '--prompt', job.prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
-      ...job.ref.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
+    let prompt = job.prompt;
+    let refs = job.ref;
+    if (series.enabled) {
+      prompt = stylePrompt(job.prompt, series.style);
+      const plan = styleRefsForEngine({ maxRefs: e.maxRefs, jobRefs: job.ref, styleRefs: series.styleRefs, video: Boolean(job.video) });
+      refs = plan.refs;
+      if (series.styleRefs.length && plan.textOnly && !series.textOnly.has(engine)) {
+        series.textOnly.add(engine);
+        log({ event: 'style_text_only', engine, reason: plan.reason });
+      } else if (series.styleRefs.length && plan.attached < series.styleRefs.length && !series.partial.has(engine)) {
+        series.partial.add(engine);
+        log({ event: 'style_refs_partial', engine, attached: plan.attached, reason: plan.reason });
+      }
+    }
+    const args = [script, '--prompt', prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
+      ...refs.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
     const r = await runProcess(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
     delete record.child;
@@ -254,15 +352,74 @@ async function main() {
       await rm(temp, { force: true });
       return;
     }
-    if (disposition === 'win') {
+    if (disposition === 'win' && series.enabled && !job.video) {
+      let screened = null;
+      try {
+        screened = await takeStyleScreen(series, job, anchors => scoreStyle(temp, anchors), undefined);
+      } catch (error) {
+        if (job.won || record.outcome === 'cancelled') {
+          if (series.anchorJob === job.id && !series.visualAnchor) series.anchorJob = null;
+          record.outcome = 'cancelled';
+          await rm(temp, { force: true });
+          return;
+        }
+        report.status = 'error';
+        report.reason = "style screen failed: " + (error.message);
+        record.produced = false;
+      }
+      if (screened) {
+        if (job.won || record.outcome === 'cancelled') {
+          if (series.anchorJob === job.id && !series.visualAnchor) series.anchorJob = null;
+          record.outcome = 'cancelled';
+          await rm(temp, { force: true });
+          return;
+        }
+        if (screened.action !== 'keep') {
+          await rm(temp, { force: true });
+          record.outcome = screened.action === 'redo' ? 'style_redo' : 'style_rejected';
+          record.style_score = screened.score;
+          recordStyleScore(series.stats, engine, screened.score);
+          job.styleRedos = screened.redos;
+          const reason = "style score " + (screened.score) + " below " + (series.threshold);
+          job.reason = reason;
+          log({ event: record.outcome, id: job.id, engine, score: screened.score, redos: screened.redos, threshold: series.threshold });
+          if (screened.action === 'redo') untry(job, engine);
+          else job.styleExhausted = true;
+          if (!job.won && !job.active.length) {
+            if (screened.action === 'redo') queue.push(job);
+            else {
+              failed.push({ id: job.id, tried: job.tried, reason, style_score: screened.score, style_redos: screened.redos });
+              log({ event: 'failed', id: job.id, reason });
+            }
+          }
+          return;
+        }
+        if (typeof screened.score === 'number') {
+          recordStyleScore(series.stats, engine, screened.score);
+          record.style_score = screened.score;
+        }
+        if (screened.claim) record.style_anchor = true;
+      }
+    }
+    if (disposition === 'win' && report.status === 'ok') {
       rateStrikes.set(engine, 0);
       job.won = true;
-      await rm(job.file, { force: true });
-      await writeFile(job.file, await readFile(temp));
-      await rm(temp, { force: true });
+      try {
+        await rm(job.file, { force: true });
+        await writeFile(job.file, await readFile(temp));
+        if (record.style_anchor) series.visualAnchor = job.file;
+        await rm(temp, { force: true });
+      } catch (error) {
+        if (record.style_anchor && !series.visualAnchor) series.anchorJob = null;
+        job.won = false;
+        throw error;
+      }
       record.outcome = 'done';
       const seconds = Math.round((Date.parse(record.finished) - Date.parse(record.started)) / 1000);
-      done.push({ id: job.id, file: job.file, engine, lane: n, seconds, started: record.started, finished: record.finished });
+      const saved = { id: job.id, file: job.file, engine, lane: n, seconds, started: record.started, finished: record.finished };
+      if (record.style_score != null) saved.style_score = record.style_score;
+      if (record.style_anchor) saved.style_anchor = true;
+      done.push(saved);
       log({ event: 'done', id: job.id, engine, seconds });
       // 同一张图还在别家做的那份停掉：Muse 写取消文件，它删掉自己的侧聊天再退出；其余引擎连同子进程整组发 SIGINT
       for (const other of job.active) {
@@ -293,10 +450,15 @@ async function main() {
     } else {
       log({ event: 'retry', id: job.id, engine, reason: job.reason });
     }
-    // 别家还在做这张就不退回队列
+    // 别家还在做这张就不退回队列。风格次数用尽后不再退回。
     if (!job.active.length && !job.won) {
-      queue.push(job);
-      settleOrphans();
+      if (job.styleExhausted) {
+        failed.push({ id: job.id, tried: job.tried, reason: job.reason, style_score: record.style_score, style_redos: job.styleRedos });
+        log({ event: 'failed', id: job.id, reason: job.reason });
+      } else {
+        queue.push(job);
+        settleOrphans();
+      }
     }
   }
 
@@ -352,8 +514,11 @@ async function main() {
     }
   }
 
-  for (const job of jobs) job.active = [];
-  log({ event: 'lanes', memory_gb: Math.round(MEMORY_GB), lanes: Object.fromEntries(o.engines.map(engine => [engine, o.lanes[engine] ?? 0])) });
+  log({
+    event: 'lanes', memory_gb: Math.round(MEMORY_GB),
+    lanes: Object.fromEntries(o.engines.map(engine => [engine, o.lanes[engine] ?? 0])),
+    ...(series.enabled ? { series: { method: series.method, threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer, engines: series.engines } } : {}),
+  });
   const lanes = o.engines.flatMap(engine => Array.from({ length: o.lanes[engine] ?? 0 }, (_, n) => lane(engine, n + 1)));
   await Promise.all(lanes);
   settleOrphans();
@@ -375,10 +540,19 @@ async function main() {
   const last = done.filter(d => d.finished).map(d => Date.parse(d.finished));
   const paidImages = done.filter(d => d.engine === 'api').length;
   const paid = API ? { images: paidImages, usd: Math.round(paidImages * API.price * 10000) / 10000, month_usd: readLedger().usd, budget_per_month: API.budgetMonth } : undefined;
-  // resumed：清单再跑时磁盘上已有的文件，跳过，不算这一轮生成。elapsed_seconds 只算生成，不含人工筛图。
+  // resumed：清单再跑时磁盘上已有的文件，跳过，不算这一轮生成。
+  // elapsed_seconds 仍是生成时间：记到引擎交回文件，不含风格打分。
+  // delivery_seconds 是从开跑到这份摘要的墙钟，系列模式里含打分和风格重做。
   const keep = { ...keepCounts(attempts), resumed: done.filter(d => d.engine === 'existing').length };
+  const delivery_seconds = Math.round((Date.now() - start) / 1000);
+  const seriesReport = series.enabled ? {
+    method: series.method, threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer,
+    engines: series.engines, text_only_engines: [...series.textOnly], partial_ref_engines: [...series.partial],
+    engine_style: styleMeans(series.stats),
+  } : undefined;
   const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
     keep, engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
+    delivery_seconds, ...(seriesReport ? { series: seriesReport } : {}),
     results: { done, failed, attempts } };
   await writeFile(path.join(o.out, 'batch-results.json'), JSON.stringify(summary, null, 2));
   log({ event: 'summary', ...summary, results: undefined });
