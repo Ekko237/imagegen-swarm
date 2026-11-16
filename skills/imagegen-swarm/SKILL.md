@@ -103,8 +103,8 @@ only the permission that command needs.
 
 The core is work-stealing: write the images you need as a job list and hand it to
 `scripts/batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free
-takes the next image it can handle, so every engine's quota is used and the batch finishes as fast
-as possible. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
+takes the next image it can handle, so every engine's quota is used and generation finishes as
+fast as possible. That clock is generation time only. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
 and if that engine is out of quota the next one does. A configured pay-per-image line takes a
 job in two cases: the job names `api`, or no enabled subscription engine can take that job.
 
@@ -153,7 +153,14 @@ it stopped.
   `--tries` engines (default 3). An image no engine can take counts as failed.
 - Every start, finish, retry and shutdown prints one JSON line; the last line is the summary, and
   the results file in the output directory records which engine made each image and how long it
-  took. Exit code is non-zero if anything failed.
+  took. The summary `keep` object counts this run only: `generated` (the engine returned an image
+  file), `kept` (that file was saved as the job output), `redone` (the file was dropped because the
+  aspect ratio was off by more than 3% and the job went back on the queue), `duplicates` (a tail-steal
+  copy returned a file and was dropped), and `resumed` (the output was already on disk and was
+  skipped). An engine error is not an image, so it is not in those counts. `elapsed_seconds` is
+  generation time only: it ends when the last file is written, and it does not include time spent
+  looking at the images or regenerating ones that miss a character or a brand. Exit code is
+  non-zero if anything failed.
 - At the end of a run, batch deletes only the temporary files it created and the work directories
   that contain this run's marker (`IMAGE_GEN_RUN_ID`). Directories left by another run are left in
   place.
@@ -215,7 +222,7 @@ credentials file. That file is read as text; only the three names in the table a
 
 ## Engines
 
-| Engine | Script | Can do | Aspect ratio | Time per image | Quota |
+| Engine | Script | Can do | Aspect ratio | Time per image (generation time only) | Quota |
 |---|---|---|---|---|---|
 | codex | `codex-image.mjs` | image, reference images | `--aspect`, chosen by the model | ~30 s | Codex plan usage |
 | jimeng | `jimeng-image.mjs` | image, edit (≤10 references), text-to-video, image-to-video | `--aspect`, real parameter | 30–50 s | Dreamina credits (~3 per image) |

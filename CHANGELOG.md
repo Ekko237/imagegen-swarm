@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **The batch summary prints keep counts from this run's attempts.** `keep.generated` is an engine returning an image file, `keep.kept` is that file saved as the job output, `keep.redone` is a file dropped for an aspect ratio off by more than 3% and put back on the queue, `keep.duplicates` is a tail-steal copy that returned a file and was dropped, and `keep.resumed` is an output already on disk. Engine errors stay out of these counts. Routing, provider calls, and `elapsed_seconds` are unchanged. `elapsed_seconds` is generation time only.
+
 ## 1.2.10 - 2026-11-15
 
 - **Reject unchanged output PNGs in codex-image (SDI-1).** The output path is snapshotted before attempts, including size, mtime and SHA-256. Byte-identical content is stale even if its mtime changes; retries and the existing JSON failure shape are preserved. Pre-existing user files are not deleted, and the generated-images stale-source check remains in place.

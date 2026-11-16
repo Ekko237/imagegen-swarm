@@ -69,6 +69,7 @@ async function main() {
       if (summary.status !== task.checks.status) failed.push("status " + (summary.status) + "，失败 " + (summary.failed) + " 张：" + (summary.reason ?? ''));
       if (used < task.checks.min_engines) failed.push("只有 " + (used) + " 家引擎接到活：" + (JSON.stringify(summary.by_engine)));
       results.push({ id: task.id, engine: 'batch', pass: !failed.length, failed, seconds: Math.round((Date.now() - started) / 1000),
+        keep: summary.keep ?? null,
         file: path.join(dir, 'out'), size: JSON.stringify(summary.by_engine), content: task.content });
       console.log(JSON.stringify(results.at(-1)));
       continue;

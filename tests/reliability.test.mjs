@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isInvokedDirectly } from '../skills/imagegen-swarm/scripts/direct.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
-  failureText, medianSeconds, paidBudgetLeft, paidMayTake, prepareOutputDir, shouldSteal,
+  failureText, keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, prepareOutputDir, shouldSteal,
 } from '../skills/imagegen-swarm/scripts/batch.mjs';
 import { engineSpec, loadApiConfig, monthSpent, openaiSize } from '../skills/imagegen-swarm/scripts/api-image.mjs';
 import {
@@ -214,6 +214,17 @@ check('fast engine does not steal a slow engine that just started', () => {
   assert.equal(shouldSteal({ activeCount: 1, holderTypical: 110, holderElapsed: 110 * STEAL_FACTOR + 0.01 }), true);
   assert.equal(shouldSteal({ activeCount: 1, holderTypical: 35, holderElapsed: 52 }), false);
   assert.equal(shouldSteal({ activeCount: 1, holderTypical: 35, holderElapsed: 53 }), true);
+});
+
+check('keep counts returned images, saved files, aspect redos, and dropped duplicates', () => {
+  assert.deepEqual(keepCounts([
+    { produced: true, outcome: 'done' },
+    { produced: true, outcome: 'failed' },
+    { produced: false, outcome: 'failed' },
+    { produced: true, outcome: 'cancelled' },
+    { produced: false, outcome: 'cancelled' },
+  ]), { generated: 3, kept: 1, redone: 1, duplicates: 1 });
+  assert.deepEqual(keepCounts(undefined), { generated: 0, kept: 0, redone: 0, duplicates: 0 });
 });
 
 check('at most one duplicate, and the loser is ignored once someone has won', () => {
@@ -519,6 +530,7 @@ await checkAsync('batch hands an image to the paid line when no subscription eng
     const downEvent = events.find(e => e.event === 'engine_down' && e.engine === 'api');
     assert.match(downEvent.reason, /not_configured/);
     assert.equal(events.at(-1).failed, 1);
+    assert.deepEqual(events.at(-1).keep, { generated: 0, kept: 0, redone: 0, duplicates: 0, resumed: 0 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -532,6 +544,7 @@ await checkAsync('batch keeps the paid line idle while a subscription engine can
     assert.ok(!events.some(e => e.event === 'start'), JSON.stringify(events));
     assert.equal(events.at(-1).failed, 1);
     assert.deepEqual(events.at(-1).paid, { images: 0, usd: 0, month_usd: 0, budget_per_month: 5 });
+    assert.deepEqual(events.at(-1).keep, { generated: 0, kept: 0, redone: 0, duplicates: 0, resumed: 0 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
