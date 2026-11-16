@@ -13,7 +13,11 @@
 </p>
 
 <p align="center">
-  <img src="docs/efficiency.png" alt="50 张图 2.3 分钟出完，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测" width="100%" />
+  <img src="docs/efficiency.png" alt="50 张图的生成时间 2.3 分钟，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测。不含筛图和风格重做" width="100%" />
+</p>
+
+<p align="center">
+  <em>这是一次实测的生成时间。2.3 分钟和 11 倍都算到文件写完为止。筛图和按风格重做不在这段时间里。见<a href="#保留率">保留率</a>。</em>
 </p>
 
 **大多数引擎不需要图片 API 密钥。**
@@ -27,14 +31,16 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 这是一个 Claude Code 和 Codex 技能。
 它把一批图同时交给这六家。
 哪家空着，就接下一张。
-一批图几分钟出完。
+上面图里的分钟数只算生成时间。
 某家额度用完，别家接过它的活。
 
 ## 活是怎么分的
 
 每家引擎同时开几条通道，每条通道做完一张就接队列里的下一张；某家额度用完，别家接着做。下图就是上面那张结果卡对应的那一批 50 张的真实记录：中途 Gemini、Lovart 额度用完，50 张照样全部交付。
 
-这只是我们的一次测试，你跑出来的数字会不一样：速度取决于你在各家有多少额度。这次 Lovart、Muse 用的是免费额度，Gemini 和 Lovart 还中途用完了；额度更多的话，每家都能一直干到最后，一批图通常会比这次更快。
+结果卡上的 2.3 分钟只算生成时间：从开工到这 50 张文件写完。看图、以及角色或品牌对不上时的重做，都不在这 2.3 分钟里。11 倍是拿这 2.3 分钟和单引擎的 26.7 分钟比。单引擎用的是这一批里最快的 Gemini，按实测每张 32 秒。两边都只算生成时间。这次运行的日志不在仓库里，所以结果卡上没有保留率。怎么数，见[保留率](#保留率)。
+
+这只是我们的一次测试，你跑出来的数字会不一样：速度取决于你在各家有多少额度。这次 Lovart、Muse 用的是免费额度，Gemini 和 Lovart 还中途用完了；额度更多的话，每家都能一直干到最后，生成通常会比这次更快。
 
 ![50 张那一批的时间线：每个格子是一张图，每一行是一条同时在干活的通道](docs/timeline.png)
 
@@ -61,7 +67,7 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 | **lovart** | 出图、参考图 | Lovart 官方命令行（你自己的 AK/SK） |
 | **api**（可选，付费） | 出图、改图 | 用你自己 key 的 OpenAI 出图接口或 Gemini API，按张付费 |
 
-有一家就能用，接上的越多，一批图出得越快。
+有一家就能用，接上的越多，生成越快。
 
 ## 安装
 
@@ -150,7 +156,37 @@ EOF
 node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
+每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的、花了多久，以及下面的 `keep` 计数。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
+
+## 保留率
+
+要分开数三件事：引擎交回了多少张、存成正式文件的有多少张、你看过之后还愿意用的有多少张。
+
+上面那一批交付了 50 张。仓库里没有那次的 `batch-results.json`，也没有筛图记录，所以没有测出来的保留率。
+
+一批跑完，最后一行 JSON 和 `out/batch-results.json` 里有 `keep`，数字来自这一轮的每次尝试：
+
+| 字段 | 数的是什么 |
+| --- | --- |
+| `generated` | 引擎交回了图片文件的次数 |
+| `kept` | 通过自动检查后，存成 `out/<id>.png`（视频是 `.mp4`）的张数 |
+| `redone` | 交回的图因为比例偏差超过 3% 被丢掉，退回队列重做的次数 |
+| `duplicates` | 抢尾单多做出来的文件。先做完的那份算进 `kept`，另一份丢掉 |
+| `resumed` | 输出文件已经在磁盘上，这次跳过的任务。不算进 `generated` |
+
+`generated` 等于 `kept` + `redone` + `duplicates`。引擎报错、超时、额度用完时没有文件，不进 `keep`。这张图仍会换一家再试，最多 `--tries` 家（默认 3）。同一份摘要里的 `done` 是存下来的任务加上跳过的任务。`elapsed_seconds` 只算生成时间。
+
+`keep` 只覆盖自动检查：文件是这一次新生成的，不是参考图原样，而且任务写了比例时偏差在 3% 以内。它不是风格分。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
+
+同一角色、同一品牌要自己量风格保留率：
+
+1. 跑完这一批。
+2. 读 `keep`，那是自动计数。
+3. 每张都看一遍，数你愿意交付的张数。这就是你的可用数。
+4. 删掉不要的，用同一份清单再跑。磁盘上还在的文件会跳过。给不合的那张另开一条任务也一样。每张换掉的都算重做。
+5. 把看图和重做花的时间加到 `elapsed_seconds` 上。加总才是交付时间。
+
+同一角色、同一品牌的封面，要把筛图和重做算进交付时间。单独的 `elapsed_seconds` 只是生成时间。
 
 ## 样例输出
 
@@ -164,11 +200,19 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 **要六家都登录吗？**
 
-不用。有一家就能用。接上的越多，一批图出得越快。只装你要用的。`node skills/imagegen-swarm/scripts/check.mjs` 会列出哪几家已经能用。没登录的会被关掉，手上的图退回队列。
+不用。有一家就能用。接上的越多，生成越快。只装你要用的。`node skills/imagegen-swarm/scripts/check.mjs` 会列出哪几家已经能用。没登录的会被关掉，手上的图退回队列。
 
 **登录安全吗？**
 
 技能本身不含账号和密钥。每家的登录留在它自己的目录里。分享这个技能时，不要把那些目录一起打包。Lovart 的 AK/SK 写在 `~/.lovart/env`，权限是 `600`，不要写进对话，也不要写进 git。各家目录见 [SETUP.md](skills/imagegen-swarm/SETUP.md)。
+
+**不同模型画出来，风格会一致吗？**
+
+队列不会把风格锁在各家引擎之间。每张图只有自己的 `prompt`，可选的 `ref`，可选的 `aspect`。哪条通道接得了，就由它画，所以一批图常常分给不同的模型。没有共用的风格说明，没有角色锁定，也没有一步拿新图去对整批的风格。
+
+参考图按任务单独传，而且只传给画这张图的那家引擎。做一系列时，每张都写同一段风格提示，并带上同一组 `ref`。即梦最多 10 张参考图，Gemini 最多 3 张，Grok 1 张。Codex、Muse、Lovart 按这条任务列出的参考图接收。Gemini 可能会改写提示词，结果里的 `prompt_verbatim` 就是 `false`。Codex、Lovart、Muse 的比例是写进提示词的文字。即梦、Grok、Gemini 和可选的 API 线路把比例当成真实参数。
+
+同一角色或同一品牌：写一段共用的风格提示，每张都带同一张参考图，然后逐张筛，不合的再生成。想让它们留在同一家模型上，就在这些任务里写上 `"engine"`。自动重做只覆盖比例不对、这一次失败、以及交回的是旧文件。风格不合，要等你筛过之后自己重做。
 
 **额度用完会怎样？**
 

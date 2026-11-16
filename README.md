@@ -13,7 +13,11 @@
 </p>
 
 <p align="center">
-  <img src="docs/efficiency.png" alt="50 images in 2.3 minutes, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
+  <img src="docs/efficiency.png" alt="50 images in 2.3 minutes of generation time only, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
+</p>
+
+<p align="center">
+  <em>Generation time only, from one test run. The 2.3 minutes and the 11× line end when the files are written. Screening and style redos sit outside that clock. See <a href="#keep-rate">Keep rate</a>.</em>
 </p>
 
 **A Claude Code and Codex skill that runs batch image and video generation across six engines in parallel.** No image API key needed for most engines—use the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have.
@@ -21,13 +25,15 @@
 * **Codex, Jimeng, Grok, Gemini, Muse**: use your existing account logins. (Jimeng also generates videos.)
 * **Lovart**: uses its official AK/SK, stored on your machine.
 
-Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue, finishing batches in minutes. When one engine hits its quota limit, the remaining engines pick up its work.
+Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue. The minutes in the chart are generation time only. When one engine hits its quota limit, the remaining engines pick up its work.
 
 ## How the work is shared
 
 Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
 
-It is one test run, so your numbers will differ: your speed will depend on your account quotas. In this run, Lovart and Muse were on free plans, and Gemini and Lovart ran out midway. With more quota, all engines stay active to the end and a batch usually finishes faster.
+The 2.3 minutes on that chart is generation time only: the wall clock until the last of those 50 files was written. Screening the images, and regenerating any that miss a character or a brand, sit outside that clock. The 11× line compares that 2.3 minutes with 26.7 minutes for one engine, using Gemini, the fastest engine in that run, at its measured 32 seconds per image. Both sides are generation time only. The run's log is not in this repository, so the chart has no keep rate. [Keep rate](#keep-rate) explains how to count one.
+
+It is one test run, so your numbers will differ: your speed will depend on your account quotas. In this run, Lovart and Muse were on free plans, and Gemini and Lovart ran out midway. With more quota, all engines stay active to the end and generation usually finishes faster.
 
 ![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
 
@@ -54,7 +60,7 @@ Image tools give you weekly or monthly quotas that mostly sit unused. Running on
 | **lovart** | images, reference images | the official Lovart CLI (your AK/SK) |
 | **api** (optional, paid) | images, edits | OpenAI Images API or Gemini API with your own key, pay per image |
 
-You only need one engine logged in. Every engine you add makes batches faster.
+You only need one engine logged in. Every engine you add makes generation faster.
 
 ## Install
 
@@ -143,7 +149,37 @@ EOF
 node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are optional. Output saves to `out/<id>.png`, progress streams as JSON lines, and `out/batch-results.json` records which engine made each image.
+Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are optional. Output saves to `out/<id>.png`, progress streams as JSON lines, and `out/batch-results.json` records which engine made each image, how long that attempt took, and the `keep` counts below.
+
+## Keep rate
+
+Count three different things: images an engine returned, images saved as the job output, and images you still want after you look at them.
+
+The 50-image run delivered 50 files. That is the number on the chart. This repository does not include that run's `batch-results.json` or a screening log, so it has no measured keep rate for the run.
+
+After a batch, the last JSON line and `out/batch-results.json` include `keep`, counted from the attempts in that run:
+
+| Field | What it counts |
+| --- | --- |
+| `generated` | Attempts where the engine returned an image file |
+| `kept` | Those files saved as `out/<id>.png` (`.mp4` for video) after the automatic checks |
+| `redone` | Returned files dropped because the aspect ratio was off by more than 3%, then put back on the queue |
+| `duplicates` | Extra files from a tail steal. The first copy to finish is the one in `kept`; the other is dropped |
+| `resumed` | Jobs skipped because the output file was already on disk. These sit outside `generated` |
+
+`generated` adds up as `kept` + `redone` + `duplicates`. An engine error, a timeout, or a quota failure returns no file, so it stays out of `keep`. The job is still retried on another engine, up to `--tries` (default 3). `done` on the same summary is saved jobs plus resumed jobs. `elapsed_seconds` is generation time only.
+
+`keep` is that automatic check: the file is new from this run, it is not a copy of a reference image, and the aspect ratio is within 3% when the job set one. It is not a style score. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
+
+To measure a style keep rate for a same-character or same-brand set:
+
+1. Run the batch.
+2. Read `keep` for the automatic counts.
+3. Look at every file and count how many you would ship. That count is your usable number.
+4. Delete the files you reject and run the same job list again. Files still on disk are skipped. A new job for an outlier works the same way. Each replacement is a redo.
+5. Add the time you spent screening and regenerating to `elapsed_seconds`. That sum is delivery time.
+
+For same-character or same-brand covers, put screening and redo time into delivery time. `elapsed_seconds` alone is generation time only.
 
 You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
 
@@ -159,11 +195,19 @@ Sample images drawn by the engines.
 
 **Do I need every engine logged in?**
 
-No. One is enough, and each engine you add speeds up batches. Set up only the ones you want. Run `node skills/imagegen-swarm/scripts/check.mjs` to see which engines are ready. Any engine without a login shuts down and returns its job to the queue.
+No. One is enough, and each engine you add speeds up generation. Set up only the ones you want. Run `node skills/imagegen-swarm/scripts/check.mjs` to see which engines are ready. Any engine without a login shuts down and returns its job to the queue.
 
 **Is my login safe?**
 
 The skill contains no accounts or keys. Each engine stores its login in its own local folder—do not bundle those folders if you share the skill. Put Lovart's AK/SK in `~/.lovart/env` with mode `600`, never in chat or git. All credential paths are listed in [SETUP.md](skills/imagegen-swarm/SETUP.md).
+
+**Will styles stay consistent across models?**
+
+The queue does not lock a style across engines. Each job carries its own `prompt`, an optional `ref` list, and an optional `aspect`. A free lane that can take the job runs it, so one batch is often split across models. There is no shared style guide, no character lock, and no step that compares a new image with the rest of the batch.
+
+Reference images are per job, and they go only to the engine that runs that job. For a series, put the same style wording and the same `ref` files on every job. Jimeng takes up to 10 references, Gemini up to 3, and Grok one. Codex, Muse, and Lovart take the references listed on the job. Gemini may rewrite the prompt; its result then has `prompt_verbatim: false`. Codex, Lovart, and Muse receive the aspect ratio as text added to the prompt. Jimeng, Grok, Gemini, and the optional API line send aspect ratio as a real parameter.
+
+For a same-character or same-brand set, write one shared style prompt, attach one reference image on every job, screen the files, and regenerate the outliers. Set `"engine"` on those jobs when you want them to stay on one model. The automatic redo covers a wrong aspect ratio, a failed attempt, and a stale file. A style mismatch waits until you screen it.
 
 **What happens when a quota runs out?**
 

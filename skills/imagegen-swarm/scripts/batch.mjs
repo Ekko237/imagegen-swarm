@@ -10,14 +10,14 @@ import { engineSpec, loadApiConfig, readLedger } from './api-image.mjs';
 import { ATTEMPT_IGNORED } from './attempt-outcomes.mjs';
 import {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, failureText,
-  medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
+  keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
 import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 
 export {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
-  failureText, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
+  failureText, keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 
 // Create the output directory before any engine starts, and return its real path.
@@ -206,7 +206,7 @@ async function main() {
   async function attemptOnce(engine, n, job) {
     const e = ENGINES[engine];
     job.tried.push(engine);
-    const record = { id: job.id, engine, lane: n, started: new Date().toISOString() };
+    const record = { id: job.id, engine, lane: n, started: new Date().toISOString(), produced: false };
     job.active.push(record);
     attempts.push(record);
     // 先写临时文件，赢了才改成正式文件名
@@ -226,19 +226,27 @@ async function main() {
     record.finished = record.finished ?? new Date().toISOString();
     job.active.splice(job.active.indexOf(record), 1);
     const line = r.stdout.trim().split('\n').at(-1) ?? '';
-    // 被停掉的那份，或别人已经交卷的那份，不再解析、不再当成失败
+    // 被停掉的那份，或别人已经交卷的那份，不再当成失败。它若仍交回了文件，只记入 keep.duplicates。
     let report = { status: 'error', reason: (r.stderr || r.stdout).slice(-500) };
-    if (record.outcome !== 'cancelled' && !job.won) {
+    const settled = record.outcome === 'cancelled' || Boolean(job.won);
+    if (!settled) {
       if (line.startsWith('{')) {
         try { report = JSON.parse(line); } catch { report = { status: 'error', reason: line.slice(-500) }; }
       }
-      if (r.code === 0 && report.status === 'ok' && job.aspect && !job.video) {
+      if (r.code === 0 && report.status === 'ok') record.produced = true;
+      if (record.produced && job.aspect && !job.video) {
         const off = await ratioOff(temp, job.aspect);
         if (off) {
           report.status = 'error';
           report.reason = "比例不对：要 " + (job.aspect) + "，交回 " + (off);
         }
       }
+    } else if (r.code === 0 && line.startsWith('{')) {
+      // 别人已经交卷，或这一份被停掉之后仍写出了文件：记成多生成的一份，不改正式结果。
+      try {
+        const late = JSON.parse(line);
+        if (late.status === 'ok') record.produced = true;
+      } catch { /* 没有交回图片报告 */ }
     }
     const disposition = attemptDisposition({ cancelled: record.outcome === 'cancelled', won: Boolean(job.won), code: r.code, status: report.status });
     if (disposition === ATTEMPT_IGNORED) {
@@ -367,8 +375,10 @@ async function main() {
   const last = done.filter(d => d.finished).map(d => Date.parse(d.finished));
   const paidImages = done.filter(d => d.engine === 'api').length;
   const paid = API ? { images: paidImages, usd: Math.round(paidImages * API.price * 10000) / 10000, month_usd: readLedger().usd, budget_per_month: API.budgetMonth } : undefined;
+  // resumed：清单再跑时磁盘上已有的文件，跳过，不算这一轮生成。elapsed_seconds 只算生成，不含人工筛图。
+  const keep = { ...keepCounts(attempts), resumed: done.filter(d => d.engine === 'existing').length };
   const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
-    engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
+    keep, engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
     results: { done, failed, attempts } };
   await writeFile(path.join(o.out, 'batch-results.json'), JSON.stringify(summary, null, 2));
   log({ event: 'summary', ...summary, results: undefined });
