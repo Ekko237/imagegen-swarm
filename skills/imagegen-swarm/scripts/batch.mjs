@@ -6,10 +6,10 @@ import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
-import { engineSpec, loadApiConfig, readLedger } from './api-image.mjs';
+import { engineSpec, hasPaidSpend, loadApiConfig, readLedger } from './api-image.mjs';
 import { ATTEMPT_IGNORED } from './attempt-outcomes.mjs';
 import {
-  RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, failureText,
+  RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError, failureText,
   keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 import {
@@ -232,10 +232,12 @@ async function main() {
     if (existsSync(job.file) && (await stat(job.file)).size > 0) done.push({ id: job.id, file: job.file, engine: 'existing' });
     else queue.push(job);
   }
-  const capable = (engine, job) => {
+  const capable = (engine, job, reconsiderPaid = false) => {
     const e = ENGINES[engine];
     const ratioOk = !job.aspect || (e.acceptsRatio ? e.acceptsRatio(job.aspect) : !e.ratios || e.ratios.includes(job.aspect));
-    return !down.has(engine) && !job.tried.includes(engine) && (!job.engine || job.engine === engine)
+    const reconsider = reconsiderPaid && e.paid;
+    const budgetDown = reconsider && String(down.get(engine) ?? '').includes('budget used up');
+    return (!down.has(engine) || budgetDown) && (!job.tried.includes(engine) || reconsider) && (!job.engine || job.engine === engine)
       && (!job.video || e.video) && ratioOk
       && job.ref.length <= e.maxRefs && (!job.video || job.ref.length > 0 || e.textVideo);
   };
@@ -264,13 +266,32 @@ async function main() {
   const fits = (engine, job) => fitsCore(engine, job) && styleAllows(engine, job);
   const monthAtStart = API ? readLedger().usd : 0;
   let paidCommitted = 0;
+  const paidBudgetReason = () => paidBudgetLeft({ price: API.price, committed: paidCommitted,
+    budgetBatch: API.budgetBatch, monthSpent: monthAtStart, budgetMonth: API.budgetMonth });
+  const stoppedByBudget = job => {
+    if (!API || !o.engines.includes('api') || !capable('api', job, true)) return null;
+    if (series.enabled && series.engines && !series.engines.includes('api')) return null;
+    if (o.engines.some(engine => !ENGINES[engine].paid && capable(engine, job)
+      && (!series.enabled || !series.engines || series.engines.includes(engine)))) return null;
+    const reason = paidBudgetReason();
+    return reason ? 'api: stopped by the paid budget: ' + reason : null;
+  };
+  const requeue = job => {
+    const reason = stoppedByBudget(job);
+    if (reason) {
+      failed.push({ id: job.id, tried: job.tried, reason, stopped_by_budget: true });
+      log({ event: 'failed', id: job.id, reason });
+    } else queue.push(job);
+  };
   // 没有任何还开着、还没试过的引擎能接的活，判定失败
   const settleOrphans = () => {
     for (let i = queue.length - 1; i >= 0; i--) {
       const job = queue[i];
-      if (!o.engines.some(engine => fits(engine, job)) || job.tried.length >= o.tries) {
+      const budgetReason = stoppedByBudget(job);
+      if (budgetReason || !o.engines.some(engine => fits(engine, job)) || job.tried.length >= o.tries) {
         queue.splice(i, 1);
-        failed.push({ id: job.id, tried: job.tried, reason: job.reason ?? '没有能接这张图的引擎（比例、参考图数、视频或额度）' });
+        failed.push({ id: job.id, tried: job.tried, reason: budgetReason ?? job.reason ?? '没有能接这张图的引擎（比例、参考图数、视频或额度）',
+          ...(budgetReason ? { stopped_by_budget: true } : {}) });
         log({ event: 'failed', id: job.id, reason: failed.at(-1).reason });
       }
     }
@@ -284,13 +305,12 @@ async function main() {
   // 别的通道看到没人在跑、队列也空才收工，收尾没做完就把计数减掉的话，退回来的图会没人接
   async function attempt(engine, n, job) {
     running++;
-    // 付费线路开工就先占上这张的预算，没出成再还回去
+    // Reserve before starting; only a known uncharged failure releases the slot.
     if (ENGINES[engine].paid) paidCommitted++;
     try {
       await attemptOnce(engine, n, job);
     } finally {
       running--;
-      if (ENGINES[engine].paid && !done.some(d => d.id === job.id && d.engine === engine && d.lane === n)) paidCommitted--;
     }
   }
 
@@ -302,6 +322,7 @@ async function main() {
     attempts.push(record);
     // 先写临时文件，赢了才改成正式文件名
     const temp = path.join(o.out, ".attempt-" + (job.id) + "-" + (engine) + "-" + (serial++) + (path.extname(job.file)));
+    const spendId = e.paid ? randomBytes(16).toString('hex') : null;
     ownedNames.add(path.basename(temp));
     const script = engineScript(e.script);
     // The parent of the temp output exists before Muse (or any other engine) is started.
@@ -324,6 +345,7 @@ async function main() {
       }
     }
     const args = [script, '--prompt', prompt, '--out', temp, ...(e.extra ?? []), ...(record.cancelFile ? ['--cancel-file', record.cancelFile] : []),
+      ...(spendId ? ['--spend-id', spendId] : []),
       ...refs.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
     const r = await runProcess(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
@@ -333,11 +355,22 @@ async function main() {
     const line = r.stdout.trim().split('\n').at(-1) ?? '';
     // 被停掉的那份，或别人已经交卷的那份，不再当成失败。它若仍交回了文件，只记入 keep.duplicates。
     let report = { status: 'error', reason: (r.stderr || r.stdout).slice(-500) };
+    if (line.startsWith('{')) {
+      try { report = JSON.parse(line); } catch { report = { status: 'error', reason: line.slice(-500) }; }
+    }
+    if (e.paid) {
+      const hasImage = existsSync(temp) && (await stat(temp)).size > 0;
+      const recorded = hasPaidSpend(spendId);
+      const returned = report.charged === true || hasImage || recorded;
+      const kind = classifyEngineError(failureText(report));
+      const uncharged = report.charged === false || kind === 'down' || kind === 'rate_limit';
+      // A confirmed image wins over an error classification. Unknown failures
+      // keep only the in-memory reservation; the parent never invents ledger rows.
+      record.charged = returned ? true : uncharged ? false : null;
+      if (record.charged === false) paidCommitted--;
+    }
     const settled = record.outcome === 'cancelled' || Boolean(job.won);
     if (!settled) {
-      if (line.startsWith('{')) {
-        try { report = JSON.parse(line); } catch { report = { status: 'error', reason: line.slice(-500) }; }
-      }
       if (r.code === 0 && report.status === 'ok') record.produced = true;
       if (record.produced && job.aspect && !job.video) {
         const off = await ratioOff(temp, job.aspect);
@@ -393,8 +426,9 @@ async function main() {
           if (screened.action === 'redo') untry(job, engine);
           else job.styleExhausted = true;
           if (!job.won && !job.active.length) {
-            if (screened.action === 'redo') queue.push(job);
-            else {
+            if (screened.action === 'redo') {
+              requeue(job);
+            } else {
               failed.push({ id: job.id, tried: job.tried, reason, style_score: screened.score, style_redos: screened.redos });
               log({ event: 'failed', id: job.id, reason });
             }
@@ -463,7 +497,7 @@ async function main() {
         failed.push({ id: job.id, tried: job.tried, reason: job.reason, style_score: record.style_score, style_redos: job.styleRedos });
         log({ event: 'failed', id: job.id, reason: job.reason });
       } else {
-        queue.push(job);
+        requeue(job);
         settleOrphans();
       }
     }
@@ -481,7 +515,7 @@ async function main() {
       }
       const index = queue.findIndex(job => fits(engine, job));
       if (index >= 0 && ENGINES[engine].paid) {
-        const over = paidBudgetLeft({ price: API.price, committed: paidCommitted, budgetBatch: API.budgetBatch, monthSpent: monthAtStart, budgetMonth: API.budgetMonth });
+        const over = paidBudgetReason();
         if (over) {
           // 付费线路原本接得了、被预算挡下的图，失败原因写明预算用完
           for (const job of queue) if (fits(engine, job)) job.reason = (engine) + ": " + (over);
@@ -545,8 +579,13 @@ async function main() {
   }
   const byEngine = Object.fromEntries(o.engines.map(engine => [engine, done.filter(d => d.engine === engine).length]));
   const last = done.filter(d => d.finished).map(d => Date.parse(d.finished));
-  const paidImages = done.filter(d => d.engine === 'api').length;
-  const paid = API ? { images: paidImages, usd: Math.round(paidImages * API.price * 10000) / 10000, month_usd: readLedger().usd, budget_per_month: API.budgetMonth } : undefined;
+  const charged = attempts.filter(attempt => attempt.charged);
+  const paidImages = charged.length;
+  const paid = API ? { images: paidImages, usd: Math.round(paidImages * API.price * 10000) / 10000,
+    month_usd: readLedger().usd, budget_per_month: API.budgetMonth,
+    uncertain: attempts.filter(attempt => attempt.engine === 'api' && attempt.charged === null).length,
+    discarded: charged.filter(attempt => attempt.outcome !== 'done').length,
+    stopped_by_budget: failed.filter(job => job.stopped_by_budget).length } : undefined;
   // resumed：清单再跑时磁盘上已有的文件，跳过，不算这一轮生成。
   // elapsed_seconds 仍是生成时间：记到引擎交回文件，不含风格打分。
   // delivery_seconds 是从开跑到这份摘要的墙钟，系列模式里含打分和风格重做。

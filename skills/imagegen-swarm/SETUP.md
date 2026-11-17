@@ -28,7 +28,7 @@ Generation does not create these directories.
 | `$HOME/.lovart/state.json` | Project and thread ids. Updated only when `$HOME/.lovart` already exists. Setup does not create this file | Resume a Lovart project |
 | `$HOME/.config/imagegen-swarm/api.json` | Provider, model, estimated price, budgets. No API key | Paid last resort. This is the only file the paid setup command below creates |
 | `$HOME/.config/imagegen-swarm/api-key` | API key, mode 600, only if you choose a key file | Paid last resort. Read at request time |
-| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per finished paid image | Compare the batch reservation with the monthly cap |
+| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per attempt with confirmed returned image bytes | Compare the batch reservation with the monthly cap |
 | `$HOME/.config/imagegen-swarm/engine-off/<engine>` | One empty file named for that engine | Pause that engine until you delete the file |
 
 | Engine | Install and log in | Login lives in |
@@ -111,7 +111,7 @@ credits.
 ## Pay-per-image API line (optional)
 
 Optional. Off until this file exists and `api` is in the batch's engine list. You pay
-`price_per_image` USD for each finished image, and the line stops before `budget_per_batch` or
+`price_per_image` USD for every charged image, including discarded images, and the line stops before `budget_per_batch` or
 `budget_per_month`. For one image, the paid line starts only when it can take that image and either
 the job sets `"engine": "api"` or no enabled subscription engine can take it. A subscription engine
 can take an image when it is in the batch's engine list, is not shut down, has not already tried
@@ -123,6 +123,22 @@ budgets, or generates paid images you did not ask for.
 
 Create a pay-as-you-go API key with your provider (OpenAI Platform or Google AI Studio), then save
 the config in `$HOME/.config/imagegen-swarm/api.json`. Run the directory step only the first time.
+
+Each started paid attempt reserves one image against both caps. A returned image keeps that
+reservation even if style screening, aspect checks, duplicate checks, or a lost steal race discard
+it. Only known uncharged failures release reservations; unknown failures keep their slot for this
+batch. API failures before a provider request and provider HTTP error responses report
+`charged: false`. A down/rate-limit rejection without an image also releases the slot.
+The API script records only confirmed returned image bytes in `api-spend.jsonl`, before local
+validation. Attempt IDs deduplicate those charges. The batch parent never writes unknown
+outcomes to the ledger, so they do not consume future batches' month budget. Redos and retries check both budgets
+again. If no subscription engine can take the job and another paid image would exceed either
+cap, the job fails as "stopped by the paid budget". The summary and `out/batch-results.json`
+include confirmed charged images in `paid.images` / `paid.usd`, unknown attempts with retained
+reservations in `paid.uncertain` (0 when none), confirmed charged attempts without a kept image
+in `paid.discarded`, and the number of blocked jobs in `paid.stopped_by_budget`. Blocked failed
+results also carry `stopped_by_budget: true`.
+
 The budgets below cap the estimated spend (`price_per_image` times images), not the provider invoice:
 
 ```bash
@@ -162,7 +178,7 @@ umask 077 && printf '%s' 'your-key' > "$HOME/.config/imagegen-swarm/api-key" && 
 ```
 
 Then add `"key_file": "$HOME/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is
-the file `$HOME/.config/imagegen-swarm/api-spend.jsonl`, one line per finished image.
+the file `$HOME/.config/imagegen-swarm/api-spend.jsonl`, one line per attempt with confirmed returned image bytes, including discarded images. Unknown failures never append a row.
 
 ## Check
 

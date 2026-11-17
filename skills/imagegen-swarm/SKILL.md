@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.3.1
+version: 1.3.2
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -185,15 +185,29 @@ it stopped.
   login, and no install shut an engine down. An image those engines cannot take because of ratio,
   reference count, or video also goes to the paid line. The paid line does not tail-steal, and it
   does not take an image a subscription engine can still take. Before a paid image is started, this process
-  reserves it. (Images already reserved in this batch, including ones still in flight) times
+  reserves it. Every charged attempt stays reserved even if its image is later discarded for
+  style, aspect ratio, duplication, or losing a steal race. Only a known uncharged failure
+  releases a reservation; uncertain failures keep their slot for this batch. (Confirmed charged
+  attempts plus unknown attempts and images still in flight) times
   `price_per_image` is compared with `budget_per_batch`. The ledger total read when this process
   started, plus that same reservation, is compared with `budget_per_month`. If either comparison
   would pass the cap, the line stops and does not start that image. The cap is this estimate. A
   provider can bill a different amount for an image that already started. A second batch process
-  does not see a reservation until this process appends the finished image to the ledger. Every
-  finished paid image appends one JSON line to `$HOME/.config/imagegen-swarm/api-spend.jsonl`
-  (`IMAGE_GEN_API_LEDGER` overrides that path). The summary line has a `paid` field with this
-  batch's images, estimated cost, and the month total from the ledger. Ask the user and wait for a
+  does not see a reservation until the API script appends a confirmed charge to the ledger.
+  Only an attempt for which the provider returned image bytes appends one JSON line to
+  `$HOME/.config/imagegen-swarm/api-spend.jsonl` (`IMAGE_GEN_API_LEDGER` overrides that path),
+  before local screening can reject it. Attempt IDs deduplicate confirmed charges. The parent
+  never writes unknown outcomes to the ledger. API failures before the request is sent and
+  provider HTTP error responses report `charged: false`; unknown request failures keep their
+  in-memory reservation, without consuming future batches' month budget.
+  Before requeueing or retrying, batch checks both caps again. If another paid image would
+  exceed either cap and no subscription engine can take the job, it fails with "stopped by the
+  paid budget". The summary and `out/batch-results.json` retain `paid.images` and `paid.usd`
+  for confirmed charged images and `paid.month_usd` for the month ledger total. `paid.uncertain`
+  counts unknown attempts whose reservations were kept (0 when none). `paid.discarded`
+  counts confirmed charged attempts without a kept image, and
+  `paid.stopped_by_budget` counts jobs stopped by budget; those failed results also have
+  `stopped_by_budget: true`. Ask the user and wait for a
   yes before any paid generation they did not ask for. Leave the pay-per-image file and both
   budgets as the user set them, leave `api` out of `--engines` unless they asked for it, and do not
   add paid jobs beyond the list they gave you. Tell them the estimated cost (`price_per_image`
@@ -214,7 +228,7 @@ The agent does not create these directories. The user creates them by running th
 |---|---|---|---|
 | `$HOME/.config/imagegen-swarm/api.json` | User setup | Provider, model, estimated price, budgets. No API key | Turns on the paid line and caps the estimate |
 | `$HOME/.config/imagegen-swarm/api-key` | User setup, only if they choose a key file. Mode 600 | The API key | Read at request time. The config file never holds it |
-| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | The directory is user setup. A finished paid image appends one line | Time, provider, model, estimated price | Compare this batch's reservation with the monthly cap |
+| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | The directory is user setup. Confirmed returned image bytes append one line per attempt | Time, provider, model, estimated price | Compare this batch's reservation with the monthly cap |
 | `$HOME/.config/imagegen-swarm/engine-off/<engine>` | User, to pause one engine | Empty file named for that engine | Skip that engine until the user deletes the file |
 | `$HOME/.config/imagegen-swarm/muse-browser` | `scripts/muse-image.py --login` only | Browser profile and Muse session | Stay signed in. Generation does not create this directory |
 | `$HOME/.lovart/env` | User setup, mode 600 | `LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, optional `LOVART_BASE_URL` | Read as text to sign Lovart requests. Other lines in the file are ignored. The file is not executed |
@@ -324,7 +338,8 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   `image_size` in `response_format`. The key comes from an environment variable (`OPENAI_API_KEY` /
   `GEMINI_API_KEY` by default, change with `key_env`) or a `key_file` with mode 600, never from the
   config itself. 401/403, 402, exhausted quota or budget shut the line down; a plain 429 backs off.
-  The ledger records finished images at the price you configured; your provider's bill is the real
+  The ledger records confirmed returned images at the price you configured, including discarded
+  images; unknown failures are reserved only within the current batch. Your provider's bill is the real
   number. Reference limits for the paid Gemini line match the model: `gemini-2.5-flash-image`
   takes 3, and later Gemini image models take 14, unless `max_refs` in the config says otherwise.
 
@@ -367,6 +382,14 @@ STYLE GUIDE (apply to every image in this series; do not change the subject):
 ```bash
 node scripts/batch.mjs --jobs jobs.json --out out/ --series --style-file style.txt --style-ref anchors/hero.png
 ```
+
+This command generates each job through the engine queue and appends the style guide from
+`style.txt` to its prompt. It scores each returned image locally with Pillow against
+`anchors/hero.png`, using a palette histogram and luminance grid, with no network call for scoring.
+Low-score images are discarded and requeued up to `max_retries`. Every charged paid image
+counts toward both the batch and month caps, even if discarded. Before a redo, both caps are
+checked again. If another paid image would exceed either cap and no subscription engine can
+take the job, the redo stops and the job is reported as stopped by the paid budget.
 
 ```json
 {

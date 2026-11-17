@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs when a job names it, or when no enabled subscription engine can take that job, and only after you set a budget."
-version: 1.3.1
+version: 1.3.2
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:
@@ -30,7 +30,7 @@ Batch image and video generation across the accounts you already have. The agent
 ## Consent
 
 - Add a provider only after you name that provider and agree.
-- Paid images run only from `$HOME/.config/imagegen-swarm/api.json`, which you create. The cap is the configured estimate (`price_per_image` times images reserved in the batch, including ones still in flight), checked against `budget_per_batch` and `budget_per_month` before a paid image starts. The provider invoice can differ.
+- Paid images run only from `$HOME/.config/imagegen-swarm/api.json`, which you create. The cap is the configured estimate (`price_per_image` times images reserved in the batch, including ones still in flight and every confirmed charged attempt even if discarded), checked against `budget_per_batch` and `budget_per_month` before a paid image starts. Only known uncharged failures release reservations; unknown failures keep a slot within this batch and are counted in `paid.uncertain` (0 when none). Only confirmed returned image bytes enter the ledger and `paid.images` / `paid.usd`. `paid.discarded` counts confirmed charged attempts without a kept image. If no subscription engine can take a redo and the next paid image would exceed either cap, the job is reported as stopped by the paid budget (`paid.stopped_by_budget`, and `stopped_by_budget: true` in failed results). The provider invoice can differ.
 - The output directory is created before Muse starts. Muse clicks "Allow once" for a save of this run's output file, or for creating exactly `/home/hatch/workspace/imagegen-swarm`. Paths are compared after `~`, `.`/`..`, and symlink resolution. Any other directory or path stops. Ask before approving it.
 - Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
 - `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
@@ -46,7 +46,7 @@ Batch image and video generation across the accounts you already have. The agent
 | `$HOME/.lovart/state.json` | Updated only if `$HOME/.lovart` already exists | Lovart project and thread ids |
 | `$HOME/.config/imagegen-swarm/api.json` | You create it | Paid provider, model, estimated price, budgets. No API key |
 | `$HOME/.config/imagegen-swarm/api-key` | You create it, mode 600, only if you choose a key file | Paid API key |
-| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | A finished paid image appends one line | Monthly estimate |
+| `$HOME/.config/imagegen-swarm/api-spend.jsonl` | Confirmed returned image bytes append one line per attempt | Monthly estimate |
 | `$HOME/.config/imagegen-swarm/engine-off/<engine>` | You create or delete the empty file | Pause one engine |
 | `$HOME/.config/imagegen-swarm/muse-browser` | Created only by `scripts/muse-image.py --login` | Muse browser profile |
 
