@@ -34,6 +34,8 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 上面图里的分钟数只算生成时间。
 某家额度用完，别家接过它的活。
 
+**1.3.0 新增：[系列图模式](#系列图模式)。** 同一角色、同一品牌或一套封面，每家引擎共用一段风格说明。
+
 ## 活是怎么分的
 
 每家引擎同时开几条通道，每条通道做完一张就接队列里的下一张；某家额度用完，别家接着做。下图就是上面那张结果卡对应的那一批 50 张的真实记录：中途 Gemini、Lovart 额度用完，50 张照样全部交付。
@@ -158,6 +160,26 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的、花了多久，以及下面的 `keep` 计数。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
 
+## 系列图模式
+
+同一角色、同一品牌，或一套封面，用系列图模式。这是按 X 上的用户反馈加的：几家引擎一起画，风格要一致。
+
+写在任务文件里，和任务列表并列：
+
+```json
+"series": {"style": "...", "ref": ["style.png"]}
+```
+
+```bash
+node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --series --style "..." --style-ref style.png
+```
+
+- 同一段风格说明，加上风格参考图，发给每一家引擎。
+- 每张图按调色板和亮度打分。分偏低的丢掉，退回队列，优先交给目前风格最齐的那家引擎。
+- 摘要里，丢掉的次数在 `keep.style_redos`。`delivery_seconds` 是写到摘要为止的墙钟，含这次打分和这些重做。
+
+这个分数只看调色板和亮度，不认脸、角色或标志。真实的多引擎系列，保留率没有测过。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode)。
+
 ## 保留率
 
 要分开数三件事：引擎交回了多少张、存成正式文件的有多少张、你看过之后还愿意用的有多少张。
@@ -179,7 +201,7 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 `keep` 覆盖这些自动检查：文件是这一次新生成的，不是参考图原样，任务写了比例时偏差在 3% 以内，系列模式里调色板分还要达到阈值。调色板分不判断是不是同一个人。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
 
-同一角色、同一品牌或一套封面，用[系列模式](skills/imagegen-swarm/SKILL.md#series-mode)。同一段风格说明发给每一家引擎，偏低的图会重做，次数在 `keep.style_redos`，打分和重做的时间在 `delivery_seconds`。这个分数只比较调色板，不认人物，交付前仍要逐张看。
+同一角色、同一品牌或一套封面，见[系列图模式](#系列图模式)。交付前仍要逐张看。
 
 不开系列模式时，风格保留率要自己量：
 
@@ -213,7 +235,7 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 默认不会。每张图只有自己的 `prompt`、可选的 `ref` 和 `aspect`。哪条通道接得了，就由它画，所以一批图常常分给不同的模型。
 
-同一角色、同一品牌或一套封面，用系列模式（`--series`，或在任务文件里写 `"series": true`）。同一段风格说明发给每一家引擎，参考图在引擎还有空位时附上，调色板分偏低的图会重做。`delivery_seconds` 含打分和这些重做。参数和分数见 [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode)。
+同一角色、同一品牌或一套封面，用[系列图模式](#系列图模式)。
 
 即梦最多 10 张参考图，Gemini 最多 3 张，Grok 1 张。Gemini 可能会改写提示词，结果里的 `prompt_verbatim` 就是 `false`。
 
