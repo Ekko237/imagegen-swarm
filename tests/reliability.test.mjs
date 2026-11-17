@@ -262,9 +262,27 @@ async function hintBatch(dir, document, args = []) {
   const scripts = path.join(dir, 'scripts');
   const off = path.join(dir, 'off');
   const callsFile = path.join(dir, 'calls.jsonl');
+  const styleCallsFile = path.join(dir, 'style-calls.jsonl');
+  const python = path.join(scripts, 'python.cjs');
   await mkdir(scripts);
   await mkdir(off);
   await writeFile(callsFile, '');
+  await writeFile(styleCallsFile, '');
+  // These tests cover hinting, not palette scoring (covered by series.test.mjs).
+  // HOME is isolated below, which can hide pip's user-site Pillow install on CI.
+  // Pin a scorer fixture instead of depending on the host's PYTHON/Pillow setup.
+  await writeFile(python, [
+    '#!' + process.execPath,
+    "const assert = require('node:assert/strict');",
+    "const { appendFileSync, readFileSync } = require('node:fs');",
+    'const args = process.argv.slice(2);',
+    'assert.equal(args.length, 4);',
+    'assert.deepEqual(args.slice(0, 2), ' + JSON.stringify([path.join(here, 'imgtool.py'), 'style']) + ');',
+    'for (const file of args.slice(2)) assert.ok(readFileSync(file).length > 0);',
+    'appendFileSync(' + JSON.stringify(styleCallsFile) + ', JSON.stringify(args) + "\\n");',
+    'console.log(JSON.stringify({ method: "palette-histogram", score: 1 }));',
+  ].join('\n'));
+  await chmod(python, 0o755);
   await writeFile(path.join(scripts, 'gemini-image.mjs'), [
     "import { appendFileSync, writeFileSync } from 'node:fs';",
     'const args = process.argv.slice(2);',
@@ -278,6 +296,7 @@ async function hintBatch(dir, document, args = []) {
   const result = await run(process.execPath, [path.join(here, 'batch.mjs'),
     '--jobs', jobsFile, '--out', path.join(dir, 'out'), '--engines', 'gemini', '--lanes', 'gemini=1', ...args], {
     HOME: dir,
+    PYTHON: python,
     IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'),
     IMAGE_GEN_ENGINE_OFF: off,
     IMAGE_GEN_TEST_SCRIPTS: 'yes',
@@ -285,8 +304,9 @@ async function hintBatch(dir, document, args = []) {
   });
   const events = result.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   const calls = (await readFile(callsFile, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const styleCalls = (await readFile(styleCallsFile, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   const saved = JSON.parse(await readFile(path.join(dir, 'out', 'batch-results.json'), 'utf8'));
-  return { ...result, events, calls, saved };
+  return { ...result, events, calls, styleCalls, saved };
 }
 
 const sharedRefJobs = count => Array.from({ length: count }, (_, i) => ({
@@ -324,7 +344,7 @@ for (const scenario of [
       const document = scenario.jobs(dir);
       const jobs = Array.isArray(document) ? document : document.jobs;
       const result = await hintBatch(dir, document, scenario.args);
-      assert.equal(result.code, 0, result.stderr);
+      assert.equal(result.code, 0, result.stderr + result.stdout);
       const stderrLines = result.stderr.trim().split('\n').filter(Boolean);
       assert.equal(stderrLines.length, scenario.hint ? 1 : 0, result.stderr);
       if (scenario.hint) {
@@ -344,6 +364,10 @@ for (const scenario of [
       assert.equal(summary.failed, 0);
       assert.deepEqual(summary.keep, { generated: jobs.length, kept: jobs.length, redone: 0, duplicates: 0, style_redos: 0, resumed: 0 });
       assert.equal(result.calls.length, jobs.length);
+      assert.equal(result.styleCalls.length, scenario.series ? jobs.length - 1 : 0);
+      for (const call of result.styleCalls) {
+        assert.equal(call[3], result.saved.results.done[0].file);
+      }
       for (let i = 0; i < jobs.length; i++) {
         const args = result.calls[i];
         const prompt = args[args.indexOf('--prompt') + 1];
