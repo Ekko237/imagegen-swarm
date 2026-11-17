@@ -11,12 +11,17 @@ import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
 // 按次付费的 API 线路：订阅额度都见底时的最后一档，用多少算多少。
 // Config file: $HOME/.config/imagegen-swarm/api.json (override with IMAGE_GEN_API_CONFIG).
 // The key stays in an environment variable or a mode-600 key file, never in that config.
-// Each finished image appends one line to $HOME/.config/imagegen-swarm/api-spend.jsonl.
+// Each charged image appends one line before local validation to $HOME/.config/imagegen-swarm/api-spend.jsonl.
 // The line stops when this month's estimated spend reaches budget_per_month.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = path.join(homedir(), '.config', 'imagegen-swarm');
 export const CONFIG_FILE = process.env.IMAGE_GEN_API_CONFIG ?? path.join(CONFIG_DIR, 'api.json');
 export const LEDGER_FILE = process.env.IMAGE_GEN_API_LEDGER ?? path.join(CONFIG_DIR, 'api-spend.jsonl');
+
+// Failure reports distinguish local setup/validation from an in-flight request.
+// Once image bytes return, even a later local failure is a confirmed charge.
+let requestStarted = false;
+let imageReturned = false;
 
 const PROVIDERS = {
   openai: { base: 'https://api.openai.com', keyEnv: 'OPENAI_API_KEY' },
@@ -110,18 +115,42 @@ export function monthSpent(text, now = new Date()) {
 
 export const readLedger = () => monthSpent(existsSync(LEDGER_FILE) ? readFileSync(LEDGER_FILE, 'utf8') : '');
 
+export function hasPaidSpend(spendId) {
+  if (!spendId || !existsSync(LEDGER_FILE)) return false;
+  return readFileSync(LEDGER_FILE, 'utf8').split('\n').filter(line => line.trim())
+    .some(line => JSON.parse(line).spend_id === spendId);
+}
+
+// Record only confirmed image bytes, before local screening can reject them.
+// The attempt ID prevents the same confirmed charge from being recorded twice.
+export async function recordPaidSpend(config, { spendId, aspect, refs }) {
+  if (hasPaidSpend(spendId)) return;
+  const now = new Date();
+  const month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const ledgerDir = path.dirname(LEDGER_FILE);
+  if (!existsSync(ledgerDir)) throw new Error("spend ledger directory does not exist: " + ledgerDir + ". Create it during setup (see SETUP.md). Generation does not create config directories.");
+  await appendFile(LEDGER_FILE, JSON.stringify({ at: now.toISOString(), month, provider: config.provider,
+    model: config.model, aspect: aspect ?? null, refs, usd: config.price,
+    ...(spendId ? { spend_id: spendId } : {}) }) + '\n');
+}
+
 // HTTP 出错时把状态码写进原因，batch.mjs 靠它分辨：401/403 没登录、余额或额度用完停用整条线路、429 先退避
 function httpError(status, body) {
   const text = body.slice(0, 600);
-  if (status === 401 || status === 403) return new Error("unauthorized (HTTP " + (status) + "): " + (text));
-  if (status === 402) return new Error("insufficient balance (HTTP 402): " + (text));
-  return new Error("HTTP " + (status) + ": " + (text));
+  const reason = status === 401 || status === 403 ? "unauthorized (HTTP " + status + "): " + text
+    : status === 402 ? "insufficient balance (HTTP 402): " + text
+    : "HTTP " + status + ": " + text;
+  // Provider HTTP error responses without an image are treated as unbilled.
+  return Object.assign(new Error(reason), { charged: false });
 }
 
 async function post(url, headers, body, limitMs) {
-  const res = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(limitMs) });
+  // Build first: invalid URL/header/timeout arguments are still pre-request errors.
+  const request = new Request(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(limitMs) });
+  requestStarted = true;
+  const res = await fetch(request);
+  if (!res.ok) throw httpError(res.status, await res.text());
   const text = await res.text();
-  if (!res.ok) throw httpError(res.status, text);
   return JSON.parse(text);
 }
 
@@ -174,7 +203,7 @@ function parse(argv) {
       process.exit(0);
     }
     if (flag === '--video') throw new Error('api engine does not make video');
-    const keys = { '--prompt': 'prompt', '--prompt-file': 'promptFile', '--out': 'out', '--aspect': 'aspect', '--timeout': 'timeout' };
+    const keys = { '--prompt': 'prompt', '--prompt-file': 'promptFile', '--out': 'out', '--aspect': 'aspect', '--timeout': 'timeout', '--spend-id': 'spendId' };
     const value = argv[i + 1];
     if (flag === '--ref' && value) { o.ref.push(path.resolve(value)); i++; continue; }
     if (!keys[flag] || !value || value.startsWith('--')) throw new Error("invalid argument: " + (flag));
@@ -215,6 +244,8 @@ async function main() {
   const key = readKey(config);
   const call = config.provider === 'openai' ? openaiImage : geminiImage;
   const bytes = await call(config, key, prompt, o.ref, o.aspect, o.timeout);
+  imageReturned = true;
+  await recordPaidSpend(config, { spendId: o.spendId, aspect: o.aspect, refs: o.ref.length });
   await mkdir(path.dirname(o.out), { recursive: true });
   const work = await mkdtemp(path.join(path.dirname(o.out), ".api-image-" + (Date.now()) + "-"));
   await markRunDir(work);
@@ -230,12 +261,6 @@ async function main() {
   } finally {
     await rm(work, { recursive: true, force: true });
   }
-  // 出图成功才记账；接口报错一般不收费
-  const now = new Date();
-  const month = (now.getFullYear()) + "-" + (String(now.getMonth() + 1).padStart(2, '0'));
-  const ledgerDir = path.dirname(LEDGER_FILE);
-  if (!existsSync(ledgerDir)) throw new Error("spend ledger directory does not exist: " + (ledgerDir) + ". Create it during setup (see SETUP.md). Generation does not create config directories.");
-  await appendFile(LEDGER_FILE, JSON.stringify({ at: now.toISOString(), month, provider: config.provider, model: config.model, aspect: o.aspect ?? null, refs: o.ref.length, usd: config.price }) + '\n');
   const { width, height } = await imgtool(['size', o.out]);
   console.log(JSON.stringify({ status: 'ok', path: o.out, engine: 'api', provider: config.provider, model: config.model, width, height,
     usd: config.price, month_usd: Math.round((spent.usd + config.price) * 10000) / 10000, bytes: (await stat(o.out)).size,
@@ -244,7 +269,9 @@ async function main() {
 
 if (isInvokedDirectly(import.meta.url)) {
   main().catch(e => {
-    console.log(JSON.stringify({ status: 'error', engine: 'api', reason: e.message }));
+    const charged = imageReturned ? true : !requestStarted || e.charged === false ? false : undefined;
+    console.log(JSON.stringify({ status: 'error', engine: 'api', reason: e.message,
+      ...(charged === undefined ? {} : { charged }) }));
     process.exitCode = 1;
   });
 }

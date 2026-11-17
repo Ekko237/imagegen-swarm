@@ -637,13 +637,105 @@ await checkAsync('api config: absent means off, missing price is an error, quali
   }
 });
 
-// 真实跑 batch.mjs：没配 key 的付费线路，不会产生任何请求和花费
+// Exercise the real API entry with fetch replaced before import: no network or keys.
+for (const provider of ['openai', 'gemini']) {
+  for (const scenario of [
+    { name: 'missing config', noConfig: true, charged: false, calls: 0 },
+    { name: 'invalid config', badConfig: true, charged: false, calls: 0 },
+    { name: 'missing key', noKey: true, charged: false, calls: 0 },
+    { name: 'missing key file', keyFile: true, charged: false, calls: 0 },
+    { name: 'invalid argument', args: ['--invalid'], charged: false, calls: 0 },
+    { name: 'invalid timeout', args: ['--timeout', 'NaN'], charged: false, calls: 0 },
+    { name: 'invalid base URL', base: 'invalid URL', charged: false, calls: 0 },
+    { name: 'missing reference', args: ['--ref', 'missing.png'], charged: false, calls: 0 },
+    { name: 'invalid reference type', ref: true, charged: false, calls: 0 },
+    { name: 'HTTP 400', http: 400, charged: false, calls: 1 },
+    { name: 'HTTP 401', http: 401, charged: false, calls: 1 },
+    { name: 'HTTP 402', http: 402, charged: false, calls: 1 },
+    { name: 'HTTP 429', http: 429, charged: false, calls: 1 },
+    { name: 'request timeout', unknown: true, calls: 1 },
+    { name: 'response without image', noImage: true, calls: 1 },
+    { name: 'charged before local validation fails', localFail: true, charged: true, calls: 1 },
+    { name: 'confirmed bytes dedup by spend ID', success: true, repeat: 2, calls: 2 },
+  ]) {
+    await checkAsync('api failure accounting ' + provider + ': ' + scenario.name, async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'api-report-'));
+      try {
+        const config = path.join(dir, 'api.json');
+        const ledger = path.join(dir, 'ledger.jsonl');
+        const calls = path.join(dir, 'calls.jsonl');
+        const mock = path.join(dir, 'fetch.mjs');
+        const python = path.join(dir, 'python.cjs');
+        await writeFile(ledger, '');
+        await writeFile(calls, '');
+        await writeFile(path.join(dir, 'ref.txt'), 'fixture');
+        if (!scenario.noConfig) await writeFile(config, JSON.stringify({ provider,
+          model: provider === 'openai' ? 'gpt-image-2' : 'gemini-2.5-flash-image',
+          key_env: 'IMAGE_GEN_TEST_NO_KEY', key_file: scenario.keyFile ? path.join(dir, 'missing-key') : undefined,
+          base_url: scenario.base ?? 'https://fixture.invalid',
+          price_per_image: scenario.badConfig ? -1 : 0.04, budget_per_batch: 1, budget_per_month: 5 }));
+        await writeFile(mock, [
+          "import { appendFileSync } from 'node:fs';",
+          'globalThis.fetch = async () => {',
+          '  appendFileSync(' + JSON.stringify(calls) + ', "request\\n");',
+          ...(scenario.unknown ? ['throw new Error("request timed out");'] : [
+            'return new Response(JSON.stringify(' + JSON.stringify(scenario.http || scenario.noImage ? {}
+              : provider === 'openai' ? { data: [{ b64_json: 'Zml4dHVyZQ==' }] }
+              : { output_image: { data: 'Zml4dHVyZQ==' } }) + '), { status: ' + (scenario.http ?? 200) + ' });',
+          ]),
+          '};',
+        ].join('\n'));
+        await writeFile(python, [
+          '#!' + process.execPath,
+          "const { copyFileSync } = require('node:fs');",
+          ...(scenario.localFail ? ['console.error("fixture decode failed"); process.exit(1);'] : [
+            'const [, command, source, target] = process.argv.slice(2);',
+            'if (command === "png") { copyFileSync(source, target); console.log("{}"); }',
+            'else console.log(JSON.stringify({ width: 1, height: 1 }));',
+          ]),
+        ].join('\n'));
+        await chmod(python, 0o755);
+        for (let i = 0; i < (scenario.repeat ?? 1); i++) {
+          const result = await run(process.execPath, ['--import', mock, path.join(here, 'api-image.mjs'),
+            '--prompt', 'fixture', '--out', path.join(dir, 'out.png'), '--spend-id', 'fixture-attempt',
+            ...(scenario.ref ? ['--ref', path.join(dir, 'ref.txt')] : scenario.args ?? [])], {
+            HOME: dir, PYTHON: python, IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: ledger,
+            IMAGE_GEN_TEST_NO_KEY: scenario.noKey || scenario.keyFile ? '' : 'fixture-key',
+          }, dir);
+          assert.equal(result.code, scenario.success ? 0 : 1, result.stdout + result.stderr);
+          const report = JSON.parse(result.stdout.trim());
+          assert.equal(report.status, scenario.success ? 'ok' : 'error');
+          assert.equal(report.engine, 'api');
+          assert.equal(report.charged, scenario.charged);
+          if (!scenario.success) assert.equal(typeof report.reason, 'string');
+        }
+        assert.equal((await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean).length, scenario.calls);
+        const entries = (await readFile(ledger, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
+        assert.equal(entries.length, scenario.charged || scenario.success ? 1 : 0);
+        if (entries.length) {
+          assert.equal(entries[0].spend_id, 'fixture-attempt');
+          assert.equal(entries[0].uncertain, undefined);
+          assert.equal(entries[0].usd, 0.04);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  }
+}
+
+// All batch paid-line tests run fake scripts under an isolated HOME.
 async function paidBatch(dir, jobs, args) {
+  const scripts = path.join(dir, 'scripts');
+  await mkdir(scripts);
+  await writeFile(path.join(scripts, 'api-image.mjs'),
+    'console.log(JSON.stringify({ status: "error", charged: false, reason: "not_configured: fixture has no key" })); process.exitCode = 1;');
   const config = path.join(dir, 'api.json');
-  await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2', key_env: 'IMAGE_GEN_TEST_NO_KEY', price_per_image: 0.04, budget_per_batch: 1, budget_per_month: 5 }));
+  await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2', price_per_image: 0.04, budget_per_batch: 1, budget_per_month: 5 }));
   await writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs));
   const r = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out'), ...args],
-    { IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'), IMAGE_GEN_TEST_NO_KEY: '' });
+    { HOME: dir, IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'),
+      IMAGE_GEN_TEST_SCRIPTS: 'yes', IMAGE_GEN_SCRIPT_DIR: scripts, IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off') });
   return r.stdout.trim().split('\n').map(line => JSON.parse(line));
 }
 
@@ -670,7 +762,7 @@ await checkAsync('batch keeps the paid line idle while a subscription engine can
     const events = await paidBatch(dir, [{ id: 'sq', prompt: 'x', aspect: '1:1' }], ['--engines', 'gemini,api', '--lanes', 'gemini=0']);
     assert.ok(!events.some(e => e.event === 'start'), JSON.stringify(events));
     assert.equal(events.at(-1).failed, 1);
-    assert.deepEqual(events.at(-1).paid, { images: 0, usd: 0, month_usd: 0, budget_per_month: 5 });
+    assert.deepEqual(events.at(-1).paid, { images: 0, usd: 0, month_usd: 0, budget_per_month: 5, discarded: 0, uncertain: 0, stopped_by_budget: 0 });
     assert.deepEqual(events.at(-1).keep, { generated: 0, kept: 0, redone: 0, duplicates: 0, style_redos: 0, resumed: 0 });
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -685,7 +777,7 @@ await checkAsync('images stopped by the paid budget say so in their failure reas
     await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2', key_env: 'IMAGE_GEN_TEST_NO_KEY', price_per_image: 0.5, budget_per_batch: 0.1, budget_per_month: 5 }));
     await writeFile(path.join(dir, 'jobs.json'), JSON.stringify([{ id: 'a', prompt: 'x' }, { id: 'b', prompt: 'y' }]));
     const r = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out'), '--engines', 'api'],
-      { IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'), IMAGE_GEN_TEST_NO_KEY: '' });
+      { HOME: dir, IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: path.join(dir, 'ledger.jsonl'), IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off') });
     const events = r.stdout.trim().split('\n').map(line => JSON.parse(line));
     assert.ok(!events.some(e => e.event === 'start'), JSON.stringify(events));
     const failedEvents = events.filter(e => e.event === 'failed');
@@ -697,6 +789,207 @@ await checkAsync('images stopped by the paid budget say so in their failure reas
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+async function chargedBatch(dir, options = {}) {
+  const { cap = 0.04, monthCap = 5, prior = 0, passAt = Infinity, lanes = 1,
+    count = 1, series = true, mode = 'image', childLedger = true, subscription = false } = options;
+  const noImage = ['quota', 'unknown', 'killed', 'not-configured', 'pre-request-once'].includes(mode);
+  const scripts = path.join(dir, 'scripts');
+  const callsFile = path.join(dir, 'calls.jsonl');
+  const ledger = path.join(dir, 'ledger.jsonl');
+  const config = path.join(dir, 'api.json');
+  const python = path.join(scripts, 'python.cjs');
+  await mkdir(scripts);
+  await writeFile(callsFile, '');
+  const now = new Date();
+  const month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  await writeFile(ledger, prior ? JSON.stringify({ month, usd: prior }) + '\n' : '');
+  await writeFile(config, JSON.stringify({ provider: 'openai', model: 'gpt-image-2',
+    price_per_image: 0.04, budget_per_batch: cap, budget_per_month: monthCap, lanes }));
+  await writeFile(path.join(dir, 'anchor.png'), 'fixture anchor');
+  // This fixture replaces Python entirely, including size checks: no host Pillow.
+  await writeFile(python, [
+    '#!' + process.execPath,
+    "const assert = require('node:assert/strict');",
+    "const { readFileSync } = require('node:fs');",
+    'const [script, command, file, ...anchors] = process.argv.slice(2);',
+    'assert.equal(script, ' + JSON.stringify(path.join(here, 'imgtool.py')) + ');',
+    'const image = JSON.parse(readFileSync(file, "utf8"));',
+    'if (command === "size") console.log(JSON.stringify({ width: 2, height: 1 }));',
+    'else {',
+    '  assert.equal(command, "style"); assert.equal(anchors.length, 1);',
+    '  assert.ok(readFileSync(anchors[0]).length);',
+    '  console.log(JSON.stringify({ score: image.subscription || image.call >= ' + passAt + ' ? 1 : 0.1 }));',
+    '}',
+  ].join('\n'));
+  await chmod(python, 0o755);
+  await writeFile(path.join(scripts, 'api-image.mjs'), [
+    "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';",
+    'import { loadApiConfig, recordPaidSpend } from ' + JSON.stringify(pathToFileURL(path.join(here, 'api-image.mjs')).href) + ';',
+    'const args = process.argv.slice(2);',
+    'const value = flag => args[args.indexOf(flag) + 1];',
+    'const callsFile = ' + JSON.stringify(callsFile) + ';',
+    'const first = !readFileSync(callsFile, "utf8").trim();',
+    'appendFileSync(callsFile, JSON.stringify({ out: value("--out"), prompt: value("--prompt"), image: ' + (!noImage || mode === 'pre-request-once') + (['rate-once', 'pre-request-once'].includes(mode) ? ' && !first' : '') + ' }) + "\\n");',
+    'const call = readFileSync(callsFile, "utf8").trim().split("\\n").length;',
+    ...(mode === 'rate-once' ? ['if (first) { console.log(JSON.stringify({ status: "error", reason: "HTTP 429 Too Many Requests" })); process.exit(1); }'] : []),
+    ...(mode === 'pre-request-once' ? ['if (first) { console.log(JSON.stringify({ status: "error", charged: false, reason: "reference file missing" })); process.exit(1); }'] : []),
+    ...(!noImage || mode === 'pre-request-once' ? ['writeFileSync(value("--out"), JSON.stringify({ call }));'] : []),
+    ...(childLedger && (!noImage || mode === 'pre-request-once') ? [
+      'await recordPaidSpend(loadApiConfig(), { spendId: value("--spend-id"), refs: 1 });',
+      'await recordPaidSpend(loadApiConfig(), { spendId: value("--spend-id"), refs: 1 });', // Dedup the same confirmed attempt.
+    ] : []),
+    ...(mode === 'quota' ? ['console.log(JSON.stringify({ status: "error", reason: "quota exhausted" })); process.exitCode = 1;']
+      : mode === 'not-configured' ? ['console.log(JSON.stringify({ status: "error", charged: false, reason: "not_configured: set FIXTURE_KEY" })); process.exitCode = 1;']
+      : mode === 'killed' ? ['process.kill(process.pid, "SIGKILL");']
+      : mode === 'unknown' ? ['console.log(JSON.stringify({ status: "error", reason: "connection timed out" })); process.exitCode = 1;']
+      : mode === 'duplicate' ? ['console.log(JSON.stringify({ status: "error", reason: "stale output: identical to a reference image" })); process.exitCode = 1;']
+      : ['console.log(JSON.stringify({ status: "ok" }));']),
+  ].join('\n'));
+  await writeFile(path.join(scripts, 'gemini-image.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    'const args = process.argv.slice(2);',
+    'writeFileSync(args[args.indexOf("--out") + 1], JSON.stringify({ subscription: true }));',
+    'console.log(JSON.stringify({ status: "ok" }));',
+  ].join('\n'));
+  const jobs = Array.from({ length: count }, (_, i) => ({ id: 'paid-' + i, prompt: 'fixture ' + i,
+    ...(mode === 'aspect' ? { aspect: '1:1' } : {}) }));
+  const document = series ? { series: { style: 'fixture style', ref: ['anchor.png'], max_retries: 10 }, jobs } : jobs;
+  const jobsFile = path.join(dir, 'jobs.json');
+  await writeFile(jobsFile, JSON.stringify(document));
+  const result = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', jobsFile,
+    '--out', path.join(dir, 'out'), '--engines', subscription ? 'api,gemini' : 'api',
+    '--lanes', 'api=' + lanes + ',gemini=1'], {
+    HOME: dir, PYTHON: python, IMAGE_GEN_API_CONFIG: config, IMAGE_GEN_API_LEDGER: ledger,
+    IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off'), IMAGE_GEN_TEST_SCRIPTS: 'yes', IMAGE_GEN_SCRIPT_DIR: scripts,
+  });
+  const rows = text => text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const events = rows(result.stdout);
+  const saved = JSON.parse(await readFile(path.join(dir, 'out', 'batch-results.json'), 'utf8'));
+  return { ...result, events, summary: events.at(-1), saved,
+    calls: rows(await readFile(callsFile, 'utf8')), ledger: rows(await readFile(ledger, 'utf8')) };
+}
+
+for (const scenario of [
+  { name: 'one image cap', cap: 0.04, expected: 1 },
+  { name: 'two image cap', cap: 0.08, expected: 2 },
+  { name: 'fractional cap', cap: 0.10, expected: 2 },
+  { name: 'three image cap', cap: 0.12, expected: 3 },
+  { name: 'four image cap with child ledger deduplication', cap: 0.16, expected: 4, childLedger: true },
+  { name: 'month cap with earlier spend', cap: 1, monthCap: 0.16, prior: 0.08, expected: 2 },
+  { name: 'concurrent lanes', cap: 0.12, lanes: 3, count: 6, expected: 3 },
+]) {
+  await checkAsync('paid series discards respect ' + scenario.name, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'paid-series-'));
+    try {
+      const result = await chargedBatch(dir, scenario);
+      assert.equal(result.code, 1, result.stdout + result.stderr);
+      const charged = result.calls.filter(call => call.image).length;
+      assert.equal(charged, scenario.expected);
+      const usd = Math.round(charged * 0.04 * 10000) / 10000;
+      assert.ok(usd <= scenario.cap + 1e-9);
+      assert.ok((scenario.prior ?? 0) + usd <= (scenario.monthCap ?? 5) + 1e-9);
+      assert.equal(result.summary.paid.uncertain, 0);
+      assert.equal(result.summary.paid.images, charged);
+      assert.equal(result.summary.paid.usd, usd);
+      assert.equal(result.summary.paid.discarded, charged);
+      assert.equal(result.summary.paid.stopped_by_budget, scenario.count ?? 1);
+      assert.deepEqual(result.saved.paid, result.summary.paid);
+      assert.equal(result.summary.keep.style_redos, charged);
+      assert.equal(result.saved.results.failed.length, scenario.count ?? 1);
+      for (const job of result.saved.results.failed) {
+        assert.equal(job.stopped_by_budget, true);
+        assert.match(job.reason, /stopped by the paid budget/);
+        assert.match(job.reason, scenario.prior ? /本月 API 预算用完/ : /本批 API 预算用完/);
+      }
+      const entries = result.ledger.filter(row => row.spend_id);
+      assert.equal(entries.length, charged);
+      assert.equal(new Set(entries.map(row => row.spend_id)).size, charged);
+      assert.equal(monthSpent(result.ledger.map(row => JSON.stringify(row)).join('\n')).usd, result.summary.paid.month_usd);
+      assert.equal(result.summary.paid.month_usd, Math.round(((scenario.prior ?? 0) + usd) * 10000) / 10000);
+      for (const call of result.calls) assert.match(call.prompt, /STYLE GUIDE/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const scenario of [
+  { name: 'aspect discard', mode: 'aspect', series: false, charged: 1, stopped: 1 },
+  { name: 'duplicate returned before error', mode: 'duplicate', series: false, charged: 1, stopped: 1 },
+  { name: 'uncertain failure retains reservation', mode: 'unknown', series: false, charged: 0, uncertain: 1, stopped: 1 },
+  { name: 'killed request retains reservation', mode: 'killed', series: false, charged: 0, uncertain: 1, stopped: 1 },
+  { name: 'missing key releases reservation', mode: 'not-configured', series: false, charged: 0, stopped: 0 },
+  { name: 'pre-request error leaves budget for another job', mode: 'pre-request-once', count: 2, series: false, charged: 1, stopped: 0, kept: 1, partial: true },
+  { name: 'quota failure releases reservation', mode: 'quota', series: false, charged: 0, stopped: 0 },
+  { name: 'uncharged rate limit leaves budget for retry', mode: 'rate-once', passAt: 2, charged: 1, stopped: 0, kept: 1 },
+  { name: 'sufficient budget keeps redo routing', cap: 0.20, passAt: 3, charged: 3, stopped: 0, kept: 1 },
+  { name: 'exhausted style retries still count', cap: 1, charged: 11, stopped: 0 },
+  { name: 'subscription stays eligible with no paid budget', cap: 0.01, subscription: true, charged: 0, stopped: 0, kept: 1 },
+]) {
+  await checkAsync('paid accounting ' + scenario.name, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'paid-accounting-'));
+    try {
+      const result = await chargedBatch(dir, scenario);
+      assert.equal(result.code, scenario.kept && !scenario.partial ? 0 : 1, result.stdout + result.stderr);
+      assert.equal(result.summary.done, scenario.kept ?? 0);
+      assert.equal(result.summary.paid.uncertain, scenario.uncertain ?? 0);
+      assert.equal(result.summary.paid.images, scenario.charged);
+      assert.equal(result.summary.paid.discarded, scenario.charged - (scenario.subscription ? 0 : scenario.kept ?? 0));
+      assert.equal(result.summary.paid.stopped_by_budget, scenario.stopped);
+      assert.equal(result.summary.paid.usd, Math.round(scenario.charged * 0.04 * 10000) / 10000);
+      assert.equal(result.ledger.length, scenario.charged);
+      assert.deepEqual(result.saved.paid, result.summary.paid);
+      if (scenario.stopped) assert.match(result.saved.results.failed[0].reason, /stopped by the paid budget/);
+      assert.ok(result.ledger.every(row => !row.uncertain));
+      if (scenario.uncertain) {
+        assert.equal(result.calls.length, 1);
+        assert.equal(result.saved.results.attempts[0].charged, null);
+      }
+      if (scenario.mode === 'not-configured') assert.equal(result.saved.results.attempts[0].charged, false);
+      if (scenario.mode === 'pre-request-once') {
+        assert.equal(result.calls.length, 2);
+        assert.deepEqual(result.saved.results.attempts.map(attempt => attempt.charged), [false, true]);
+      }
+      if (scenario.mode === 'aspect') assert.equal(result.summary.keep.redone, 1);
+      if (scenario.mode === 'quota') assert.equal(result.saved.results.attempts[0].charged, false);
+      if (scenario.mode === 'rate-once') {
+        assert.equal(result.calls.length, 2);
+        assert.deepEqual(result.saved.results.attempts.map(attempt => attempt.charged), [false, true]);
+      }
+      if (scenario.subscription) assert.equal(result.calls.length, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const scenario of [
+  { cap: 0.04, expected: 1 },
+  { cap: 0.08, expected: 2 },
+  { cap: 0.10, expected: 2 },
+  { cap: 0.12, expected: 3, lanes: 3 },
+  { cap: 1, monthCap: 0.12, prior: 0.04, expected: 2 },
+]) {
+  await checkAsync('unknown paid failures reserve slots without ledger entries: ' + JSON.stringify(scenario), async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'paid-unknown-'));
+    try {
+      const result = await chargedBatch(dir, { ...scenario, mode: 'unknown', count: 6, series: false });
+      assert.equal(result.code, 1, result.stdout + result.stderr);
+      assert.equal(result.calls.length, scenario.expected);
+      assert.equal(result.summary.paid.uncertain, scenario.expected);
+      assert.equal(result.summary.paid.images, 0);
+      assert.equal(result.summary.paid.usd, 0);
+      assert.equal(result.summary.paid.discarded, 0);
+      assert.ok(result.summary.paid.stopped_by_budget > 0);
+      assert.deepEqual(result.saved.paid, result.summary.paid);
+      assert.equal(result.ledger.length, scenario.prior ? 1 : 0);
+      assert.equal(result.summary.paid.month_usd, scenario.prior ?? 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 check('child processes receive named keys and not the rest of the environment', () => {
   const source = { PATH: '/usr/bin', HOME: '/tmp/home', UNRELATED_SECRET: 'nope', IMAGE_GEN_RUN_ID: 'from-parent' };

@@ -31,6 +31,8 @@ Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free 
 
 **New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
 
+**Fixed in 1.3.2: paid-budget accounting.** Every charged image counts toward the batch and month caps, even if discarded. Redos stop with a budget failure when another paid image would exceed a cap and no subscription engine can take the job.
+
 ## How the work is shared
 
 Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.

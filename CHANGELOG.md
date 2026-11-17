@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2 - 2026-11-17
+
+- **Paid images count toward both budgets even when discarded.** A returned paid image keeps its reservation through style redos, aspect rejection, duplicates, and lost steal races. Known uncharged failures release their reservations; unknown failures retain a slot only within the current batch. The API script records confirmed returned image bytes before local screening, deduplicated by attempt ID. The batch parent never writes unknown outcomes to the month ledger. Pre-request failures and provider HTTP error responses signal `charged: false`.
+- `paid.images` and `paid.usd` include confirmed charged images. `paid.uncertain` counts unknown attempts whose reservations were retained (0 when none); `paid.discarded` counts confirmed charged attempts without a kept image. Jobs blocked from another paid attempt are reported as stopped by the paid budget in failed results and `paid.stopped_by_budget`, in both the summary and `batch-results.json`. Subscription routing remains available.
+- Hermetic fake-engine, fetch, and scorer tests cover pre-request errors, unknown failures and killed requests, series discards, several batch and month caps, concurrent reservations, aspect and duplicate rejection, and confirmed ledger deduplication. The series command and paid accounting rules are documented. No real provider was called.
+
 ## 1.3.1 - 2026-11-16
 
 - **Series-mode hints are informational only; generation behavior is unchanged.** Series mode remains off by default and is never auto-enabled. The assistant asks about a shared style only for a clear same-character, brand, mascot, cover-set or series request, or a shared style reference, and enables it only after the user agrees.
