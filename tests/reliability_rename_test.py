@@ -1,12 +1,14 @@
-"""Muse rename is cosmetic: a missing row or a failing dialog must not stop generation."""
+"""Hermetic Muse rename, path and fail-closed approval checks; no browser or provider."""
 import importlib.util
 import io
-import shutil
+import json
+import subprocess
 import sys
 import tempfile
 import types
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 
 def install_stubs():
@@ -163,62 +165,211 @@ def test_choose_side_row_legacy_current_marker():
     assert muse.choose_side_row(only_main, CHAT) is None
 
 
-def test_approval_requires_exact_output_write():
-    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
-    assert muse.scoped_save_approval(f"write file {remote}", remote) is True
-    assert muse.scoped_save_approval(f"create directory {remote}", remote) is False
-    assert muse.scoped_save_approval("read /home/hatch/workspace/imagegen-swarm", remote) is False
-    assert muse.scoped_save_approval(f"write file {remote} and /tmp/other", remote) is False
-    assert muse.scoped_save_approval(f"curl {remote}", remote) is False
-    assert muse.scoped_save_approval("write file /home/hatch/workspace/imagegen-swarm/other.png", remote) is False
-    # A different temp name is not this file, even in the same directory.
-    assert muse.scoped_save_approval(
-        "write file /home/hatch/workspace/imagegen-swarm/.attempt-img-1.png", remote
-    ) is False
+# Policy fixtures only, NOT captured Muse requests or a claim about Muse's DOM/API.
+# No verified live decoder exists: APPROVALS must return request=None for live cards.
+REMOTE = "/home/hatch/workspace/imagegen-swarm/img-1.png"
 
 
-def test_approval_allows_only_the_cloud_workspace_directory():
-    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
-    workspace = "/home/hatch/workspace/imagegen-swarm"
-    assert muse.scoped_save_approval(f"mkdir {workspace}", remote) is True
-    assert muse.scoped_save_approval("create directory ~/workspace/imagegen-swarm", remote) is True
-    assert muse.scoped_save_approval(
-        "mkdir /home/hatch/workspace/imagegen-swarm/../imagegen-swarm", remote
-    ) is True
-    assert muse.scoped_save_approval("mkdir /home/hatch/workspace", remote) is False
-    assert muse.scoped_save_approval("mkdir /home/hatch/workspace/other", remote) is False
-    assert muse.scoped_save_approval("mkdir /tmp/imagegen-swarm", remote) is False
-    assert muse.scoped_save_approval(f"mkdir {workspace} and /tmp/other", remote) is False
-    assert muse.scoped_save_approval(f"read {workspace}", remote) is False
-    assert muse.scoped_save_approval(f"mkdir {workspace} && curl {workspace}", remote) is False
+def decoded_save(path=REMOTE, operation="save_image"):
+    return {"label": "Allow once", "detail": "internal policy fixture",
+            "controls": ["Deny", "Allow once"],
+            "request": {"operation": operation, "paths": [path]}}
+
+
+def test_approval_requires_exact_output_save():
+    assert muse.scoped_save_approval(decoded_save(), REMOTE) is True
+    for operation in ("read", "write_file", "modify", "delete", "run_command", "network", "unknown"):
+        assert muse.scoped_save_approval(decoded_save(operation=operation), REMOTE) is False
+
+
+def test_approval_refuses_directory_creation():
+    for directory in (muse.REMOTE_DIR, "/home/hatch/workspace", "/tmp/imagegen-swarm", REMOTE):
+        assert muse.scoped_save_approval(decoded_save(directory, "create_directory"), REMOTE) is False
+        assert muse.scoped_save_approval(decoded_save(directory, "mkdir"), REMOTE) is False
+    assert muse.scoped_save_approval(decoded_save(muse.REMOTE_DIR), REMOTE) is False
+
+
+def test_approval_rejects_compound_requests():
+    for operation in ("delete", "modify", "run_command", "read", "network"):
+        compound = decoded_save()
+        compound["request"]["operations"] = [{"operation": operation, "paths": ["/tmp/other"]}]
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+        compound = decoded_save(operation=["save_image", operation])
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+        compound = decoded_save(operation="save_image and " + operation)
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+        compound = decoded_save()
+        compound["request"] = [compound["request"], {"operation": operation, "paths": [REMOTE]}]
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+    for key, value in (("command", "echo extra"), ("content", "modify another file"), ("arguments", {})):
+        compound = decoded_save()
+        compound["request"][key] = value
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+    for paths in ([REMOTE, "/tmp/other"], [REMOTE, REMOTE], []):
+        compound = decoded_save()
+        compound["request"]["paths"] = paths
+        assert muse.scoped_save_approval(compound, REMOTE) is False
+
+
+def test_approval_rejects_command_syntax_and_extra_actions():
+    for suffix in ("; echo extra", "&& echo extra", "|| echo extra", "| cat", "`id`", "$(id)",
+                   "\ndelete /tmp/other", "\rmodify /tmp/other", " and delete other.png", " extra.png",
+                   "\tother.png", "\x00", "\n"):
+        assert muse.scoped_save_approval(decoded_save(REMOTE + suffix), REMOTE) is False
+        assert muse.scoped_save_approval(decoded_save(operation="save_image" + suffix), REMOTE) is False
+        # Text alone is never a permission, even with the exact path and safe-looking verb.
+        unknown = {"label": "Allow once", "detail": "save " + REMOTE + suffix, "request": None}
+        assert muse.scoped_save_approval(unknown, REMOTE) is False
+    for path in (f'"{REMOTE}"', f"'{REMOTE}'", " " + REMOTE, REMOTE + " ", "https://host" + REMOTE):
+        assert muse.scoped_save_approval(decoded_save(path), REMOTE) is False
+
+
+def test_approval_rejects_mismatched_paths():
+    for path in ("/home/hatch/workspace/imagegen-swarm/other.png",
+                 "/home/hatch/workspace/imagegen-swarm/.attempt-img-1.png",
+                 "/home/hatch/workspace/other/img-1.png",
+                 "/home/hatch/workspace/imagegen-swarm/../img-1.png",
+                 "~/workspace/imagegen-swarm/../../img-1.png", "/tmp/img-1.png"):
+        assert muse.scoped_save_approval(decoded_save(path), REMOTE) is False
 
 
 def test_approval_matches_normalized_output_path():
-    remote = "/home/hatch/workspace/imagegen-swarm/img-1.png"
-    assert muse.scoped_save_approval("write file ~/workspace/imagegen-swarm/img-1.png", remote) is True
-    assert muse.scoped_save_approval("write file ~hatch/workspace/imagegen-swarm/img-1.png", remote) is True
-    assert muse.scoped_save_approval(
-        "write file /home/hatch/workspace/imagegen-swarm/./img-1.png", remote
-    ) is True
-    assert muse.scoped_save_approval(
-        "save /home/hatch/workspace/imagegen-swarm/../imagegen-swarm/img-1.png", remote
-    ) is True
-    root = Path(tempfile.mkdtemp(prefix="muse-path-"))
-    try:
-        real = root / "real"
+    for path in ("~/workspace/imagegen-swarm/img-1.png", "~hatch/workspace/imagegen-swarm/img-1.png",
+                 "/home/hatch/workspace/imagegen-swarm/./img-1.png",
+                 "/home/hatch/workspace/imagegen-swarm/../imagegen-swarm/img-1.png"):
+        assert muse.scoped_save_approval(decoded_save(path), REMOTE) is True
+    with tempfile.TemporaryDirectory(prefix="muse-path-") as directory:
+        root = Path(directory)
+        real, elsewhere = root / "real", root / "elsewhere"
         real.mkdir()
+        elsewhere.mkdir()
         link = root / "link"
         link.symlink_to(real, target_is_directory=True)
         via_link = str(link / "img-1.png")
         via_real = str(real / "img-1.png")
         assert muse.canonical_output_path(via_link) == muse.canonical_output_path(via_real)
-        assert muse.scoped_save_approval(f"write file {via_real}", via_link) is True
-        prepared = muse.prepare_local_output(via_link)
-        assert prepared == muse.canonical_output_path(via_real, home=Path.home())
+        assert muse.scoped_save_approval(decoded_save(via_link), via_real) is True
+        link.unlink()
+        link.symlink_to(elsewhere, target_is_directory=True)
+        assert muse.scoped_save_approval(decoded_save(via_link), via_real) is False
+        file_link = real / "alias.png"
+        foreign_file = elsewhere / "other.png"
+        foreign_file.touch()
+        file_link.symlink_to(foreign_file)
+        assert muse.scoped_save_approval(decoded_save(str(file_link)), via_real) is False
+        prepared = muse.prepare_local_output(real / "new" / "out.png")
+        assert prepared == muse.canonical_output_path(real / "new" / "out.png")
         assert prepared.parent.is_dir()
         assert not prepared.exists()
-    finally:
-        shutil.rmtree(root)
+
+
+def test_approval_fails_closed_on_unknown_or_malformed_shape():
+    for approval in (None, [], "write file " + REMOTE, {}, {"label": "Allow once", "detail": "save " + REMOTE}):
+        assert muse.scoped_save_approval(approval, REMOTE) is False
+    for request in (None, {}, [], "save " + REMOTE, {"operation": "save_image"}, {"paths": [REMOTE]},
+                    {"operation": "save_image", "paths": REMOTE},
+                    {"operation": "save_image", "paths": [None]},
+                    {"operation": "save_image", "paths": [123]},
+                    {"operation": "save_image", "paths": [""]},
+                    {"operation": "save_image", "paths": [REMOTE], "extra": None}):
+        approval = decoded_save()
+        approval["request"] = request
+        assert muse.scoped_save_approval(approval, REMOTE) is False
+
+
+def test_approval_rejects_every_other_label():
+    for label in (None, "Allow", "Allow always", "Allow Once", "Allow once ", "Deny", "", 1):
+        approval = decoded_save()
+        approval["label"] = label
+        assert muse.scoped_save_approval(approval, REMOTE) is False
+
+
+def test_approval_dom_does_not_invent_a_request_protocol():
+    # Evaluate the actual extraction JS against DOM doubles, without Playwright or a browser.
+    script = r'''const fs = require('node:fs');
+const vm = require('node:vm');
+const {source, path} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const results = [];
+for (const hasDenyButton of [true, false]) {
+    const allow = {textContent: 'Allow once'};
+    const deny = {textContent: 'Deny'};
+    const card = {innerText: 'save ' + path + '\nDeny\nAllow once', parentElement: null,
+                  querySelectorAll: () => hasDenyButton ? [deny, allow] : [allow]};
+    allow.parentElement = card;
+    const document = {querySelectorAll: () => [allow]};
+    results.push(vm.runInNewContext('(' + source + ')()', {document}));
+}
+process.stdout.write(JSON.stringify(results));'''
+    result = subprocess.run(["node", "-e", script], input=json.dumps({"source": muse.APPROVALS, "path": REMOTE}),
+                            text=True, capture_output=True, check=True)
+    found, missing = json.loads(result.stdout)
+    assert found == [{"label": "Allow once", "detail": f"save {REMOTE}\nDeny\nAllow once",
+                      "controls": ["Deny", "Allow once"], "request": None}]
+    assert missing == [{"label": "Allow once", "detail": "", "controls": [], "request": None}]
+    for approval in found + missing:
+        assert muse.scoped_save_approval(approval, REMOTE) is False
+
+
+class ApprovalPage:
+    def __init__(self):
+        self.clicks = 0
+
+    def get_by_role(self, role, name, exact):
+        assert (role, name, exact) == ("button", "Allow once", True)
+        return types.SimpleNamespace(first=self)
+
+    def click(self):
+        self.clicks += 1
+
+    def wait_for_timeout(self, _milliseconds):
+        pass
+
+
+def test_wait_done_refuses_before_any_click():
+    unknown = {"label": "Allow once", "detail": "save " + REMOTE, "request": None}
+    mismatch = decoded_save("/tmp/other.png")
+    compound = decoded_save(operation="save_image and run_command")
+    wrong_label = decoded_save()
+    wrong_label["label"] = "Allow always"
+    for asks in ([unknown], [compound], [mismatch], [wrong_label], [decoded_save(), unknown],
+                 [unknown, decoded_save()]):
+        page, approved = ApprovalPage(), []
+        with patch.object(muse, "approvals", return_value=asks):
+            try:
+                muse.wait_done(page, 0, float("inf"), approved, None, REMOTE)
+            except RuntimeError as error:
+                assert "approval shape was not recognized" in str(error)
+                assert "was not clicked" in str(error)
+            else:
+                raise AssertionError("unsafe approval did not stop the job")
+        assert page.clicks == 0
+        assert approved == []
+
+
+def test_wait_done_records_an_internally_decoded_save():
+    # Policy integration only. A live unverified card never becomes decoded_save().
+    page, approved = ApprovalPage(), []
+    request = decoded_save()
+    replies = [{"role": "assistant", "text": "done"}]
+    with patch.object(muse, "approvals", side_effect=[[request], [], []]), \
+         patch.object(muse, "messages", return_value=replies), \
+         patch.object(muse, "busy", return_value=False), patch.object(muse, "IDLE_SECONDS", 0):
+        assert muse.wait_done(page, 0, float("inf"), approved, None, REMOTE) == replies
+    assert page.clicks == 1
+    assert approved == [request["detail"]]
+
+
+def test_wait_done_records_only_the_clicked_card():
+    page, approved = ApprovalPage(), []
+    first, second = decoded_save(), decoded_save()
+    first["detail"], second["detail"] = "first policy fixture", "second policy fixture"
+    replies = [{"role": "assistant", "text": "done"}]
+    with patch.object(muse, "approvals", side_effect=[[first, second], [], []]), \
+         patch.object(muse, "messages", return_value=replies), \
+         patch.object(muse, "busy", return_value=False), patch.object(muse, "IDLE_SECONDS", 0):
+        assert muse.wait_done(page, 0, float("inf"), approved, None, REMOTE) == replies
+    assert page.clicks == 1
+    assert approved == [first["detail"]]
 
 
 def test_profile_stays_on_the_documented_default():
@@ -235,15 +386,7 @@ def test_profile_stays_on_the_documented_default():
 
 
 if __name__ == "__main__":
-    test_profile_stays_on_the_documented_default()
-    test_timeout_skips_and_dismisses()
-    test_success_does_not_dismiss()
-    test_dismiss_failure_still_continues()
-    test_row_miss_warns_once_and_continues()
-    test_choose_side_row_by_thread_id()
-    test_choose_side_row_refuses_other_chats()
-    test_choose_side_row_legacy_current_marker()
-    test_approval_requires_exact_output_write()
-    test_approval_allows_only_the_cloud_workspace_directory()
-    test_approval_matches_normalized_output_path()
-    print("rename tests ok")
+    tests = [fn for name, fn in list(globals().items()) if name.startswith("test_") and callable(fn)]
+    for test in tests:
+        test()
+    print(f"Muse tests ok: {len(tests)}")

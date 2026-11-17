@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.3 - 2026-11-17
+
+- **Muse approvals fail closed instead of trusting free-text keywords.** The internal policy permits only "Allow once" for one image-save operation with one path equal to this run's output after the existing normalization. Directory creation, extra operations or arguments, commands, reads, network access and mismatched paths are refused. The `approved` list records only the card actually clicked.
+- No captured approval establishes a verified Muse operation/path layout. The extractor keeps the request unrecognized, so Muse jobs stop with a RuntimeError instead of auto-approving unrecognized cards, including legitimate saves. Jobs without approval cards continue as before. The evidence and requirements for a future decoder are documented in `references/muse.md`; no Muse protocol is assumed.
+- Hermetic policy, DOM-double and wait-loop tests cover exact paths, normalization and symlinks, compound requests, command syntax, malformed shapes, labels and refusal without clicks. No real provider or browser was run.
+
 ## 1.3.2 - 2026-11-17
 
 - **Paid images count toward both budgets even when discarded.** A returned paid image keeps its reservation through style redos, aspect rejection, duplicates, and lost steal races. Known uncharged failures release their reservations; unknown failures retain a slot only within the current batch. The API script records confirmed returned image bytes before local screening, deduplicated by attempt ID. The batch parent never writes unknown outcomes to the month ledger. Pre-request failures and provider HTTP error responses signal `charged: false`.

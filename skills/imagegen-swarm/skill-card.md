@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs when a job names it, or when no enabled subscription engine can take that job, and only after you set a budget."
-version: 1.3.2
+version: 1.3.3
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:
@@ -31,7 +31,7 @@ Batch image and video generation across the accounts you already have. The agent
 
 - Add a provider only after you name that provider and agree.
 - Paid images run only from `$HOME/.config/imagegen-swarm/api.json`, which you create. The cap is the configured estimate (`price_per_image` times images reserved in the batch, including ones still in flight and every confirmed charged attempt even if discarded), checked against `budget_per_batch` and `budget_per_month` before a paid image starts. Only known uncharged failures release reservations; unknown failures keep a slot within this batch and are counted in `paid.uncertain` (0 when none). Only confirmed returned image bytes enter the ledger and `paid.images` / `paid.usd`. `paid.discarded` counts confirmed charged attempts without a kept image. If no subscription engine can take a redo and the next paid image would exceed either cap, the job is reported as stopped by the paid budget (`paid.stopped_by_budget`, and `stopped_by_budget: true` in failed results). The provider invoice can differ.
-- The output directory is created before Muse starts. Muse clicks "Allow once" for a save of this run's output file, or for creating exactly `/home/hatch/workspace/imagegen-swarm`. Paths are compared after `~`, `.`/`..`, and symlink resolution. Any other directory or path stops. Ask before approving it.
+- The output directory is created before Muse starts. Muse approval policy permits only "Allow once" for one decoded image-save operation and one exact output path after `~`, `.`/`..`, and existing symlink resolution. Directory creation and all extra operations or arguments are refused. No live operation/path layout is verified yet, so every live approval card stops the job without a click; free text never grants permission. See [references/muse.md](references/muse.md). Ask before approving a stopped request.
 - Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
 - `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
 - Lovart generation uploads only the reference files named for that job. It does not upload credentials or other local files.

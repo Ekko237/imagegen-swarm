@@ -387,11 +387,15 @@ SENT_IMAGES = r'''before => {
     const entry = [...document.querySelectorAll('[data-message-item]')].slice(before).find(n => n.dataset.messageRole === 'user');
     return entry ? [...entry.querySelectorAll('button.hatch-chat-groupable-bubble img[alt]')].map(n => n.getAttribute('alt')) : null;
 }'''
-# Approvals 面板里每个以 Allow 开头的按钮，往上找到同时含 Deny 的最小容器，读出请求说明
+# Only the Allow/Deny controls and containing text are evidenced by the existing
+# implementation. No captured approval establishes operation/argument selectors
+# or a whole-card grammar. Do not infer permissions from that text. See references/muse.md.
 APPROVALS = r'''() => [...document.querySelectorAll('button')].filter(b => /^allow\b/i.test(b.textContent.trim())).map(b => {
+    const controls = node => [...node.querySelectorAll('button')].map(n => n.textContent.trim());
     let node = b.parentElement;
-    while (node && !/\bDeny\b/.test(node.innerText)) node = node.parentElement;
-    return {label: b.textContent.trim(), detail: node ? node.innerText.trim() : ''};
+    while (node && !controls(node).includes('Deny')) node = node.parentElement;
+    return {label: b.textContent.trim(), detail: node ? node.innerText.trim() : '',
+            controls: node ? controls(node) : [], request: null};
 })'''
 
 
@@ -467,39 +471,38 @@ def prepare_local_output(out):
     return path
 
 
-def scoped_save_approval(detail, remote):
-    # True for a save of this run's output file, or for creating the one cloud workspace folder.
-    # That folder is REMOTE_DIR. A fresh Muse sandbox creates it once. Any other directory stops.
-    text = " ".join(str(detail).split())
-    lowered = text.lower()
-    banned = ("curl", "wget", "sudo", "chmod", "chown", "ssh", "http://", "https://",
-              "bash", "sh -c", "eval", "base64", "rm ", "rm\t", "delete", "unlink")
-    if any(word in lowered for word in banned):
+def scoped_save_approval(approval, remote):
+    """Check an internally decoded request, never free-text approval descriptions.
+
+    `request` is our internal policy representation, NOT a Muse wire protocol.
+    APPROVALS leaves it null until a real captured card supports a complete,
+    evidence-backed decoder. Thus all currently unrecognized live cards stop.
+    A future decoder must account for the entire card, including every argument;
+    it must not turn a summary or a subset of a compound request into this shape.
+    """
+    if not isinstance(approval, dict) or approval.get("label") != "Allow once":
         return False
-    # "~/" is one path. Do not also treat the slash after "~" as a second absolute path.
-    paths = [match.group(0).rstrip(".,);]\"'") for match in re.finditer(r"(?:~(?:hatch)?|(?<!~))/(?:[\w.+@=-]+/)+[\w.+@=-]+", text)]
-    if not paths:
+    request = approval.get("request")
+    if not isinstance(request, dict) or set(request) != {"operation", "paths"}:
         return False
-    normalized = [canonical_output_path(item) for item in paths]
-    workspace = canonical_output_path(REMOTE_DIR)
-    if all(item == workspace for item in normalized):
-        create_words = ("mkdir", "create", "directory", "目录", "创建", "新建")
-        return any(word in lowered or word in text for word in create_words)
-    wanted = canonical_output_path(remote)
-    if any(item != wanted for item in normalized):
+    if request["operation"] != "save_image":
         return False
-    # "create directory <file>" is not a save of the file. A save may still say "create file".
-    directory_words = ("mkdir", "directory", "目录")
-    file_words = ("write", "save", "保存", "写入", "存成")
-    if any(word in lowered or word in text for word in directory_words) and not any(word in text or word in lowered for word in file_words):
+    paths = request["paths"]
+    if not isinstance(paths, list) or len(paths) != 1 or not isinstance(paths[0], str):
         return False
-    write_words = file_words + ("create", "创建")
-    return any(word in text or word in lowered for word in write_words)
+    # One literal path only. Do not strip quotes/whitespace or extract a path from
+    # a command; separators, substitutions and additional actions cannot match.
+    if not re.fullmatch(r"[A-Za-z0-9_./~@+=-]+", paths[0]):
+        return False
+    try:
+        return canonical_output_path(paths[0]) == canonical_output_path(remote)
+    except (OSError, ValueError, RuntimeError):
+        return False
 
 
 def wait_done(page, since, deadline, approved, cancel_file, remote):
     # 持续空闲满 IDLE_SECONDS 才算做完（回复生成中 Stop 会短暂消失）。
-    # 只点「Allow once」。路径规范化后必须是本轮那个输出文件，或只创建云端工作目录 REMOTE_DIR。
+    # 只点可完整解析的单个保存请求「Allow once」，路径必须是本轮输出文件；未知卡片不点。
     # 调用方（抢活脚本）要取消时会建 cancel_file：看到就按出错流程走，删掉侧聊天再退出
     idle = None
     while True:
@@ -507,10 +510,11 @@ def wait_done(page, since, deadline, approved, cancel_file, remote):
             raise RuntimeError("cancelled: another engine finished this image first")
         asks = approvals(page)
         if asks:
-            if not all(a.get("label") == "Allow once" and scoped_save_approval(a.get("detail", ""), remote) for a in asks):
-                raise RuntimeError(f"Muse 停在待确认上，请求不是本轮输出文件的写入，不代点：{json.dumps(asks, ensure_ascii=False)[:1500]}")
+            if not all(scoped_save_approval(a, remote) for a in asks):
+                raise RuntimeError("Muse approval shape was not recognized or was outside this run's single-image save scope; "
+                                   f"was not clicked: {json.dumps(asks, ensure_ascii=False)[:1500]}")
             page.get_by_role("button", name="Allow once", exact=True).first.click()
-            approved.extend(a["detail"] for a in asks)
+            approved.append(asks[0]["detail"])
             idle = None
             continue
         replied = any(m["role"] == "assistant" and m["text"] for m in messages(page)[since:])

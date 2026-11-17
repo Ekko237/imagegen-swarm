@@ -31,7 +31,7 @@ Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free 
 
 **New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
 
-**Fixed in 1.3.2: paid-budget accounting.** Every charged image counts toward the batch and month caps, even if discarded. Redos stop with a budget failure when another paid image would exceed a cap and no subscription engine can take the job.
+**Fixed in 1.3.3: fail-closed Muse approvals.** Free-text cards no longer grant permission. Only a verified single image-save operation for the exact output path may be approved. No live card layout is verified yet, so Muse jobs stop instead of clicking unrecognized approval cards. See [Muse approval details](skills/imagegen-swarm/references/muse.md).
 
 ## How the work is shared
 
@@ -262,7 +262,7 @@ node tests/evals/run.mjs out/                         # every fixed task, includ
 node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 node tests/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
 node tests/series.test.mjs                    # series anchor, mock engines, palette score
-python3 tests/reliability_rename_test.py      # Muse rename does not block generation
+python3 tests/reliability_rename_test.py      # Muse rename and fail-closed approval checks
 ```
 
 </details>
