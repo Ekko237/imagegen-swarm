@@ -274,8 +274,10 @@ node tests/series.test.mjs                    # 系列模式、假引擎、调�
 <summary>文件</summary>
 
 ```
-├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references、evals
+├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references
 ├─ docs/                    README 配图
+├─ tests/                   可靠性和系列模式测试；tests/evals/ 放评测脚本和用例
+├─ examples/                示例任务文件和 Lovart 包装脚本
 ├─ AGENTS.md                交给 agent 时的入口
 ├─ CHANGELOG.md             版本说明
 ├─ .claude-plugin/          Claude Code 插件清单（skills: ./skills/imagegen-swarm）

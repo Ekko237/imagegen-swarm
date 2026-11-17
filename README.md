@@ -271,8 +271,10 @@ python3 tests/reliability_rename_test.py      # Muse rename and fail-closed appr
 <summary>Layout</summary>
 
 ```
-├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references, evals
+├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references
 ├─ docs/                    README images
+├─ tests/                   reliability and series tests; tests/evals/ has the eval runner and spec
+├─ examples/                example job files and the Lovart wrapper script
 ├─ AGENTS.md                entry point for an agent handed this repo
 ├─ CHANGELOG.md             release notes
 ├─ .claude-plugin/          Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
