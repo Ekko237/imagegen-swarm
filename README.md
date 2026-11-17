@@ -29,6 +29,8 @@ Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free 
 
 **New in 1.3.0: [series mode](#series-mode).** For the same character, the same brand, or a cover set, every engine shares one style guide.
 
+**New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
+
 ## How the work is shared
 
 Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
@@ -155,9 +157,13 @@ Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are 
 
 ## Series mode
 
-Use series mode when the images are one series: the same character, the same brand, or a cover set. It came from user feedback on X about style consistency across engines.
+Series mode is off by default and is never enabled automatically. It came from user feedback on X about style consistency across engines. When you mention the same character, brand, mascot, a cover set, or a series, or every task shares the same style reference image, the assistant first asks: “Should this batch share one style? If so I'll turn on series mode.” It enables the mode only after you agree, using your description for `series.style` and the shared reference image(s) for `series.ref`. Without a clear signal, such as 50 font images in different styles, there is no reminder.
 
-In the jobs file, beside the job list:
+The CLI prints one bilingual `series_hint` JSON event to stderr only when `--series` is absent, the jobs file has no `series` key (including a plain array), there are at least 4 jobs, and every job has an identical non-empty reference list. Paths are resolved relative to the jobs file with `path.resolve`; order and duplicate counts must match. Filesystem symlinks are not resolved, empty path strings do not qualify, and prompt similarity is not used. Any explicit `series` value, including `false` or `null`, suppresses the hint. The message suggests adding `--series` if the jobs should share one style.
+
+When emitted, `series_hint: true` appears in the final summary and `out/batch-results.json`; otherwise the field is omitted. The hint is informational only: it never enables series mode, prompts, waits, or changes engines, provider calls or arguments, environment, or exit codes.
+
+After agreement, in the jobs file, beside the job list:
 
 ```json
 "series": {"style": "...", "ref": ["style.png"]}

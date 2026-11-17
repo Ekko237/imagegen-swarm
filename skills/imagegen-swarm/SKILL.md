@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
-description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For the same character, the same brand, or a cover series, use series mode so every engine shares one style anchor. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.3.0
+description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
+version: 1.3.1
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -104,8 +104,10 @@ only the permission that command needs.
 The core is work-stealing: write the images you need as a job list and hand it to
 `scripts/batch.mjs`. All six engines start at once with a few lanes each, and whichever lane is free
 takes the next image it can handle, so every engine's quota is used and generation finishes as
-fast as possible. That clock is generation time only. For a same-character, same-brand, or cover
-series, use [series mode](#series-mode) so every engine gets the same style guide. A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
+fast as possible. That clock is generation time only. Before planning any batch, apply the
+[series-mode hint rules](#series-mode) below: ask only on a clear signal, and enable it only after
+the user agrees. Series mode is off by default and must never be auto-enabled.
+A single image goes through `scripts/batch.mjs` too: the first engine in line takes it,
 and if that engine is out of quota the next one does. A configured pay-per-image line takes a
 job in two cases: the job names `api`, or no enabled subscription engine can take that job.
 
@@ -331,11 +333,29 @@ images after decoding, and converts non-PNG output to PNG.
 
 ## Series mode
 
-Use series mode when the images are one series: the same character, the same brand, or a set of
-covers. Leave it off when each image is its own asset. The default queue does not lock a style, and
-mixing engines makes that drift more likely.
+Series mode is off by default. Never enable it automatically. When planning a batch, a clear signal
+means the user mentions the same character, the same brand, the same mascot, a set of covers, or a
+series, OR every task shares the same style reference image. On that signal, first ask one sentence:
+“Should this batch share one style? If so I'll turn on series mode.” / “这批要统一风格吗？要的话我打开系列图模式”。
+Enable it only if the user agrees. Otherwise leave generation unchanged. Without a clear signal,
+do not remind them; for example, 50 font images in different styles need no reminder.
 
-Turn it on with `--series`, or with `"series": true`, a `series` object, or a style string in the
+After agreement, write `series.style` from the user's own style description and put the shared
+reference image(s), if supplied, in `series.ref`. Do not invent a style for them. Each job's prompt
+still describes its subject. The default queue does not lock a style, and mixing engines makes
+that drift more likely.
+
+The CLI has a narrower informational hint: if there is no `--series` flag, the jobs file has no
+`series` key (a plain array counts as no key), there are at least 4 jobs, and every job has the same
+non-empty reference list, batch emits exactly one bilingual `series_hint` JSON event to stderr.
+Reference paths use `path.resolve` relative to the jobs file; lists must match in order and
+duplicate count. Symlinks are not resolved, and prompts are not compared. Empty path strings do
+not qualify. Any explicit `series` value, including `false` or `null`, suppresses the hint.
+The final summary and `out/batch-results.json` include `series_hint: true` only when a hint was
+emitted; otherwise the field is omitted. This hint never enables series mode, prompts, or waits,
+and does not change engines, provider calls or arguments, environment, or exit codes.
+
+After the user agrees, turn it on with `--series`, or with `"series": true`, a `series` object, or a style string in the
 jobs file. The job `prompt` stays the subject. Do not copy the style guide into every prompt. Batch
 appends the same style guide to every image and video prompt, for every engine:
 
