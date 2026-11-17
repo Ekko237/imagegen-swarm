@@ -1,0 +1,95 @@
+name: Bug report
+description: Something in imagegen-swarm did not work
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    id: guidance
+    attributes:
+      value: |
+        Check the README's common questions and existing issues first. Remove keys (including AK/SK), tokens, cookies, account IDs, and personal information from all text and logs.
+  - type: input
+    id: skill_version
+    attributes:
+      label: Skill version
+      description: Release version or commit you installed; include the installation method.
+      placeholder: "v1.3.3, folder install"
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      description: Claude Code, Codex, another agent, or direct CLI; include its version.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: runtime_versions
+    attributes:
+      label: OS and runtime versions
+      description: OS version, Node.js version, and Python version, if available.
+    validations:
+      required: false
+  - type: dropdown
+    id: engines
+    attributes:
+      label: Affected engines
+      description: Select all that apply.
+      multiple: true
+      options:
+        - codex
+        - jimeng (Dreamina)
+        - grok
+        - gemini (Antigravity)
+        - muse
+        - lovart
+        - api (paid OpenAI or Gemini)
+        - Batch routing or unsure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What you asked and how to reproduce
+      description: Include the exact command or agent request, a minimal jobs JSON if relevant, and relevant flags such as series mode. Use non-sensitive sample prompts and paths.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Describe the failure and any error message or unexpected output.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Transcript or log excerpt (secrets removed)
+      description: Paste the part showing the failure. Relevant readiness-check output or batch-results.json excerpts can help; remove keys, tokens, cookies, account IDs, and personal information.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials and personal information from this report and its attachments.
+          required: true

@@ -1,0 +1,63 @@
+name: Feature request
+description: Suggest a focused improvement to imagegen-swarm
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    id: guidance
+    attributes:
+      value: |
+        Search existing issues first. Explain a concrete workflow and keep credentials, account IDs, and personal information out of examples.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Batch routing or series mode
+        - codex
+        - jimeng (Dreamina)
+        - grok
+        - gemini (Antigravity)
+        - muse
+        - lovart
+        - api (paid OpenAI or Gemini)
+        - Setup or agent integration
+        - Documentation or tests
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What workflow needs improvement?
+      description: Describe the task, current limitation, and who would benefit.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe one focused change. Include a sample command, jobs JSON, or expected output if useful, with secrets removed.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: What can you do with the current commands or engines?
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Relevant environment
+      description: Skill version, agent and version, OS, and provider model, if relevant.
+    validations:
+      required: false
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials and personal information from this request and its attachments.
+          required: true
