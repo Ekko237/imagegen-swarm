@@ -27,6 +27,8 @@
 
 Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue. The minutes in the chart are generation time only. When one engine hits its quota limit, the remaining engines pick up its work.
 
+**New in 1.3.0: [series mode](#series-mode).** For the same character, the same brand, or a cover set, every engine shares one style guide.
+
 ## How the work is shared
 
 Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
@@ -151,6 +153,26 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are optional. Output saves to `out/<id>.png`, progress streams as JSON lines, and `out/batch-results.json` records which engine made each image, how long that attempt took, and the `keep` counts below.
 
+## Series mode
+
+Use series mode when the images are one series: the same character, the same brand, or a cover set. It came from user feedback on X about style consistency across engines.
+
+In the jobs file, beside the job list:
+
+```json
+"series": {"style": "...", "ref": ["style.png"]}
+```
+
+```bash
+node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --series --style "..." --style-ref style.png
+```
+
+* One style guide and the style reference images go to every engine.
+* Each image is screened on palette and brightness. An outlier is discarded and put back on the queue, preferring the most consistent engine so far.
+* The summary counts those discards in `keep.style_redos`. `delivery_seconds` is the wall clock until the summary, including that screening and those redos.
+
+The score is palette and brightness only. It does not recognize a face, a character, or a logo. A keep rate was not measured on a real multi-engine series. All options are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
+
 ## Keep rate
 
 Count three different things: images an engine returned, images saved as the job output, and images you still want after you look at them.
@@ -172,7 +194,7 @@ After a batch, the last JSON line and `out/batch-results.json` include `keep`, c
 
 `keep` counts those automatic checks: the file is new from this run, it is not a copy of a reference image, the aspect ratio is within 3% when the job set one, and, in series mode, the palette score is at least the threshold. The palette score does not judge character identity. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
 
-For a same-character, same-brand, or cover series, run [series mode](skills/imagegen-swarm/SKILL.md#series-mode). It sends one style guide to every engine, scores each image, redoes the outliers, and records that work in `keep.style_redos` and `delivery_seconds`. The score is a local palette comparison, not a judgment of character identity, so still look at every kept file.
+For a same-character, same-brand, or cover series, see [series mode](#series-mode). Still look at every kept file.
 
 To measure a style keep rate without series mode:
 
@@ -208,7 +230,7 @@ The skill contains no accounts or keys. Each engine stores its login in its own 
 
 Not by default. Each job carries its own `prompt`, an optional `ref` list, and an optional `aspect`, and a free lane that can take the job runs it, so one batch is often split across models.
 
-For the same character, the same brand, or a cover series, use series mode (`--series`, or `"series": true` in the job file). One style guide is sent to every engine, style reference images are attached where the engine has room, and a low palette score is redone. `delivery_seconds` includes that screening and those redos. Details, limits, and the score are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
+For the same character, the same brand, or a cover series, use [series mode](#series-mode).
 
 Jimeng takes up to 10 references, Gemini up to 3, and Grok one. Gemini may rewrite the prompt; its result then has `prompt_verbatim: false`.
 
