@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1 - 2026-11-16
+
+- **Series-mode hints are informational only; generation behavior is unchanged.** Series mode remains off by default and is never auto-enabled. The assistant asks about a shared style only for a clear same-character, brand, mascot, cover-set or series request, or a shared style reference, and enables it only after the user agrees.
+- Without `--series` or any explicit jobs-file `series` key, a batch of at least 4 jobs with identical non-empty reference lists emits one bilingual `series_hint` JSON event on stderr. Paths are resolved relative to the jobs file; list order and duplicate counts must match. Prompt similarity is not used. The summary and `out/batch-results.json` include `series_hint: true` only when emitted; otherwise it is omitted.
+- Same engines, provider calls and arguments, environment inheritance, and exit codes. The CLI hint adds no prompts or waiting. Hermetic fake-engine tests cover matching and differing references, the job-count boundary, explicit series values, path normalization, and unchanged prompts and reference arguments.
+
 ## 1.3.0 - 2026-11-16
 
 - **Series mode shares one style anchor and counts screening in delivery time.** `--series`, or `"series": true`, a `series` object, or a style string in the jobs file, appends one style guide to every prompt. Style reference images are attached where the engine has room. Otherwise the log records `style_text_only` or `style_refs_partial`. After each image, Pillow scores a 64×64 palette histogram (weight 0.8) and a 4×4 luminance grid (weight 0.2). Scores below the threshold (default 0.72) are discarded and requeued, preferring the engine with the best mean so far, up to `max_retries` (default 2). `series.engines` can limit the batch to fewer engines.

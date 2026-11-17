@@ -13,7 +13,7 @@ import {
   keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 import {
-  recordStyleScore, resolveSeriesConfig, splitJobsDocument, styleMeans, stylePrompt,
+  recordStyleScore, resolveSeriesConfig, shouldHintSeries, splitJobsDocument, styleMeans, stylePrompt,
   styleRefsForEngine, styleRouteAllows, takeStyleScreen,
 } from './series-policy.mjs';
 import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
@@ -186,6 +186,7 @@ async function main() {
   if (!series.enabled && seriesOptions) throw new Error('series options need --series, or "series" in the jobs file');
   const jobs = split.jobs;
   const base = path.dirname(o.jobs);
+  const seriesHint = shouldHintSeries({ flag: o.series, root: split.root, jobs, base });
   const ids = new Set();
   for (const job of jobs) {
     if (!job.id || !job.prompt) throw new Error("every job needs id and prompt: " + (JSON.stringify(job)));
@@ -214,6 +215,12 @@ async function main() {
     }
   }
   o.out = await prepareOutputDir(o.out);
+  if (seriesHint) {
+    console.error(JSON.stringify({
+      at: new Date().toISOString(), event: 'series_hint',
+      message: '这批任务共用同一组参考图，如果要统一风格，可以加 --series。All jobs share the same reference images; add --series if they should share one style.',
+    }));
+  }
   for (const job of jobs) job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
   const start = Date.now();
   const down = new Map();
@@ -552,7 +559,7 @@ async function main() {
   } : undefined;
   const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
     keep, engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
-    delivery_seconds, ...(seriesReport ? { series: seriesReport } : {}),
+    delivery_seconds, ...(seriesReport ? { series: seriesReport } : {}), ...(seriesHint ? { series_hint: true } : {}),
     results: { done, failed, attempts } };
   await writeFile(path.join(o.out, 'batch-results.json'), JSON.stringify(summary, null, 2));
   log({ event: 'summary', ...summary, results: undefined });

@@ -258,6 +258,106 @@ function run(cmd, args, env, cwd) {
   });
 }
 
+async function hintBatch(dir, document, args = []) {
+  const scripts = path.join(dir, 'scripts');
+  const off = path.join(dir, 'off');
+  const callsFile = path.join(dir, 'calls.jsonl');
+  await mkdir(scripts);
+  await mkdir(off);
+  await writeFile(callsFile, '');
+  await writeFile(path.join(scripts, 'gemini-image.mjs'), [
+    "import { appendFileSync, writeFileSync } from 'node:fs';",
+    'const args = process.argv.slice(2);',
+    'const out = args[args.indexOf("--out") + 1];',
+    'appendFileSync(' + JSON.stringify(callsFile) + ', JSON.stringify(args) + "\\n");',
+    'writeFileSync(out, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC", "base64"));',
+    'console.log(JSON.stringify({ status: "ok" }));',
+  ].join('\n'));
+  const jobsFile = path.join(dir, 'jobs.json');
+  await writeFile(jobsFile, JSON.stringify(document));
+  const result = await run(process.execPath, [path.join(here, 'batch.mjs'),
+    '--jobs', jobsFile, '--out', path.join(dir, 'out'), '--engines', 'gemini', '--lanes', 'gemini=1', ...args], {
+    HOME: dir,
+    IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'),
+    IMAGE_GEN_ENGINE_OFF: off,
+    IMAGE_GEN_TEST_SCRIPTS: 'yes',
+    IMAGE_GEN_SCRIPT_DIR: scripts,
+  });
+  const events = result.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const calls = (await readFile(callsFile, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const saved = JSON.parse(await readFile(path.join(dir, 'out', 'batch-results.json'), 'utf8'));
+  return { ...result, events, calls, saved };
+}
+
+const sharedRefJobs = count => Array.from({ length: count }, (_, i) => ({
+  id: 'hint-' + i, prompt: 'same character, scene ' + i, ref: ['anchor.png'],
+}));
+
+for (const scenario of [
+  { name: 'hints once for four jobs sharing a reference', hint: true, jobs: () => sharedRefJobs(4) },
+  { name: 'hints for more than four jobs', hint: true, jobs: () => sharedRefJobs(5) },
+  { name: 'hints for an object without a series key', hint: true, jobs: () => ({ jobs: sharedRefJobs(4) }) },
+  { name: 'compares resolved paths relative to the jobs file', hint: true, jobs: dir => sharedRefJobs(4).map((job, i) => ({
+    ...job, ref: [i === 0 ? path.join(dir, 'anchor.png') : './nested/../anchor.png'],
+  })) },
+  { name: 'hints for identical ordered multi-reference lists', hint: true, jobs: () => sharedRefJobs(4).map(job => ({ ...job, ref: ['a.png', 'b.png'] })) },
+  { name: 'does not hint for differing references despite similar prompts', jobs: () => sharedRefJobs(4).map((job, i) => ({ ...job, ref: [i ? 'anchor.png' : 'other.png'] })) },
+  { name: 'does not hint for fewer than four jobs', jobs: () => sharedRefJobs(3) },
+  ...[false, null, 0, ''].map(series => ({
+    name: 'does not hint for explicit series ' + JSON.stringify(series),
+    jobs: () => ({ series, jobs: sharedRefJobs(4) }),
+  })),
+  ...[true, 'fixture style', { style: 'fixture style' }].map(series => ({
+    name: 'does not hint for explicit enabled series ' + JSON.stringify(series),
+    series: true, jobs: () => ({ series, style: 'fixture style', jobs: sharedRefJobs(4) }),
+  })),
+  { name: 'does not hint with the series flag', series: true, jobs: () => sharedRefJobs(4), args: ['--series', '--style', 'fixture style'] },
+  { name: 'does not hint when a job lacks references', jobs: () => sharedRefJobs(4).map((job, i) => ({ ...job, ref: i ? job.ref : [] })) },
+  { name: 'does not hint for empty reference paths', jobs: () => sharedRefJobs(4).map(job => ({ ...job, ref: [''] })) },
+  { name: 'does not hint without any references', jobs: () => sharedRefJobs(4).map(({ ref, ...job }) => job) },
+  { name: 'does not hint when reference order differs', jobs: () => sharedRefJobs(4).map((job, i) => ({ ...job, ref: i ? ['a.png', 'b.png'] : ['b.png', 'a.png'] })) },
+  { name: 'does not hint when reference multiplicity differs', jobs: () => sharedRefJobs(4).map((job, i) => ({ ...job, ref: i ? ['a.png'] : ['a.png', 'a.png'] })) },
+]) {
+  await checkAsync('series hint ' + scenario.name, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'batch-hint-'));
+    try {
+      const document = scenario.jobs(dir);
+      const jobs = Array.isArray(document) ? document : document.jobs;
+      const result = await hintBatch(dir, document, scenario.args);
+      assert.equal(result.code, 0, result.stderr);
+      const stderrLines = result.stderr.trim().split('\n').filter(Boolean);
+      assert.equal(stderrLines.length, scenario.hint ? 1 : 0, result.stderr);
+      if (scenario.hint) {
+        const hint = JSON.parse(stderrLines[0]);
+        assert.equal(hint.event, 'series_hint');
+        assert.equal(typeof hint.at, 'string');
+        assert.match(hint.message, /这批任务共用同一组参考图，如果要统一风格，可以加 --series/);
+        assert.match(hint.message, /All jobs share the same reference images; add --series if they should share one style\./);
+      }
+      assert.equal(result.events.some(event => event.event === 'series_hint'), false);
+      const summary = result.events.at(-1);
+      assert.equal(summary.event, 'summary');
+      assert.equal(summary.series_hint, scenario.hint ? true : undefined);
+      assert.equal(result.saved.series_hint, summary.series_hint);
+      assert.equal(Boolean(summary.series), Boolean(scenario.series));
+      assert.equal(summary.done, jobs.length);
+      assert.equal(summary.failed, 0);
+      assert.deepEqual(summary.keep, { generated: jobs.length, kept: jobs.length, redone: 0, duplicates: 0, style_redos: 0, resumed: 0 });
+      assert.equal(result.calls.length, jobs.length);
+      for (let i = 0; i < jobs.length; i++) {
+        const args = result.calls[i];
+        const prompt = args[args.indexOf('--prompt') + 1];
+        if (scenario.series) assert.ok(prompt.startsWith(jobs[i].prompt + '\n\nSTYLE GUIDE'));
+        else assert.equal(prompt, jobs[i].prompt);
+        const refs = args.flatMap((value, index) => value === '--ref' ? [args[index + 1]] : []);
+        assert.deepEqual(refs, (jobs[i].ref ?? []).map(ref => path.resolve(dir, ref)));
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const scenario of [
   { name: 'rejects an old PNG after a failed exec', preExisting: true, action: '', code: 7, success: false },
   { name: 'rejects an old PNG after a successful exec', preExisting: true, action: '', code: 0, success: false },

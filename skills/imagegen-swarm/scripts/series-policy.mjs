@@ -4,6 +4,8 @@
 // both taken from a 64x64 resize. 1 is the same palette. There is no CLIP model and
 // no network call.
 
+import path from 'node:path';
+
 export const STYLE_METHOD = "palette-histogram";
 export const DEFAULT_STYLE_THRESHOLD = 0.72;
 export const DEFAULT_STYLE_RETRIES = 2;
@@ -14,6 +16,21 @@ export function splitJobsDocument(doc) {
     return { jobs: doc.jobs, series: doc.series === undefined ? null : doc.series, root: doc };
   }
   throw new Error("jobs file must be a JSON array, or an object with a jobs array");
+}
+
+// Informational only. Compare ordered lists, including duplicates, after path.resolve
+// relative to the jobs file. Do not resolve symlinks, inspect images, or compare prompts.
+export function shouldHintSeries({ flag, root, jobs, base }) {
+  if (flag || (root && Object.hasOwn(root, 'series')) || jobs.length < 4) return false;
+  let shared = null;
+  for (const job of jobs) {
+    if (!Array.isArray(job?.ref) || !job.ref.length) return false;
+    if (!job.ref.every(ref => typeof ref === 'string' && ref.trim().length > 0)) return false;
+    const refs = job.ref.map(ref => path.resolve(base, ref));
+    if (shared === null) shared = refs;
+    else if (refs.length !== shared.length || refs.some((ref, i) => ref !== shared[i])) return false;
+  }
+  return true;
 }
 
 function asList(value) {
