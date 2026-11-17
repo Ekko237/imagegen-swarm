@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.3.2
+version: 1.3.3
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -307,11 +307,15 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   delete any chat. Before Muse is started, batch creates the output directory and uses its real
   path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
   exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
-  the script clicks "Allow once" only in two cases. Every path is this run's output file, or the
-  only path is the cloud workspace directory `/home/hatch/workspace/imagegen-swarm` and the request
-  creates that directory. `~` is read as `/home/hatch`, `.` and `..` are removed, and existing
-  symlinks are resolved before that comparison. Any other directory or path stops the run and
-  returns the request text. Ask the user before approving that request. `IMAGE_GEN_MUSE_PROFILE` must resolve
+  the policy permits only "Allow once" for exactly one decoded image-save operation with exactly
+  one path equal to this run's output file. `~` is read as `/home/hatch`, `.` and `..` are removed,
+  and existing symlinks are resolved before comparison. Directory creation, extra operations or
+  paths, commands, reads, network access, and unknown arguments are refused. Free-text descriptions
+  never grant permission. No captured approval card currently establishes a verified operation/path
+  layout, so the script fails closed on all live approval cards: the job stops with a RuntimeError
+  saying the shape was not recognized and was not clicked. Jobs without approval cards continue.
+  See [references/muse.md](references/muse.md) for the evidence and decoder requirements.
+  Ask the user before approving a stopped request. `IMAGE_GEN_MUSE_PROFILE` must resolve
   under `$HOME/.config/imagegen-swarm` or be the legacy default
   `$HOME/.config/image-gen/muse-browser`. Anything else is refused. One process at a time can use
   the browser. An existing profile in the previous `image-gen` folder is still used until the user

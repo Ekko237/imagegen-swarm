@@ -40,6 +40,20 @@ Generation does not create these directories.
 | muse | `pip install playwright && playwright install chromium`, then `python3 scripts/muse-image.py --login` and sign in to muse.ai in the window that opens; afterwards `--list-chats` should list your side chats | `$HOME/.config/imagegen-swarm/muse-browser` |
 | lovart | See below | `$HOME/.lovart/env` and, once that directory exists, `$HOME/.lovart/state.json` |
 
+## Muse approvals
+
+The local output parent is created before Muse starts. The approval policy permits only
+"Allow once" for exactly one decoded image-save operation with one path matching this run's
+cloud output after `~`, `.`/`..`, and existing symlink resolution. Creating a cloud directory is
+not auto-approved. Extra operations, paths or arguments, commands, reads and network requests
+are refused; permission is never inferred from descriptive text.
+
+No captured card currently verifies Muse's operation/path layout. All live approval cards
+therefore fail closed: the job stops with an error saying the shape was not recognized and was
+not clicked. This can stop otherwise legitimate saves. Jobs that require no approval continue
+as before. A verified decoder needs a real captured card before auto-approval can resume; do not
+work around this by matching keywords. See [references/muse.md](references/muse.md).
+
 ## Jimeng binary
 
 The Dreamina CLI is a binary you install yourself. Publisher `version.json` reports version
