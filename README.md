@@ -292,3 +292,5 @@ The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrap
 MIT, see [LICENSE](LICENSE).
 
 Tried it? Open an issue and tell me what broke or what you made.
+
+If this saved you some time, a ⭐ helps other people find it. Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
