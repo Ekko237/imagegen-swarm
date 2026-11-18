@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.3.4 - 2026-11-17
 
+- **Muse keeps a saved image when side-chat cleanup fails.** If the PNG is already saved and deleting the side chat then fails (for example `当前行不是侧聊天 …`), `muse-image.py` now prints the usual success JSON with a `warnings` list and exits 0. Before, the result was lost and the exit code was 1. The `warnings` key appears only when non-empty, so normal output is unchanged. Generation failures still exit non-zero.
+- **Behavior change: a relative Muse `--out` resolves against the current working directory.** It used to be joined to `$HOME`. The other engine scripts already resolved relative paths against the working directory. `~` still means the local home, and approval paths still resolve against the Muse cloud home.
+- Docs: reworded the Muse approval-card sentence in `SETUP.md` (and the matching one in `SKILL.md`) that said a card "was not clicked, and nothing is clicked". No behavior change.
 - Docs: clarified Muse approval wording. No live approval card has been captured; in a live test on 2026-11-17 three Muse generations completed with no approval card, so ordinary Muse jobs run without an approval step. If a card does appear, the script stops with an error and clicks nothing. No behavior change.
+- Hermetic tests cover cleanup failure after a saved PNG (success JSON, exit 0), a clean run without `warnings`, generation failure with and without cleanup failure (exit 1), and relative `--out` resolution for Muse and `codex-image.mjs`. No real provider or browser was run.
 
 ## 1.3.3 - 2026-11-17
 
