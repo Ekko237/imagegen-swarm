@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 2026-11-17
+
+- ClawHub display name fix (显示名修正): the 1.4.0 ClawHub listing was published with the display name "Pub"; 1.4.1 republishes it as "imagegen-swarm". No functional change.
+
 ## 1.4.0 - 2026-11-17
 
 - **Series mode gets a measured consistency check instead of a palette-only score.** The new default method `auto` uses `structure` (Pillow only: 0.4 × grayscale SSIM + 0.5 × a 4×4 HOG-like gradient-orientation grid + 0.1 × the old palette score), or `clip` when the user has installed the optional backend. `palette-histogram`, the 1.3.x score, stays selectable and unchanged. Choose with `series.method` or `--style-method auto|structure|clip|palette-histogram` (`palette` is an alias). The method is resolved once per batch, before any engine starts.

@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.4.0
+version: 1.4.1
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
