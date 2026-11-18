@@ -31,7 +31,7 @@ Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free 
 
 **New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
 
-**Fixed in 1.3.3: fail-closed Muse approvals.** Free-text cards no longer grant permission. Only a verified single image-save operation for the exact output path may be approved. No live card layout is verified yet, so Muse jobs stop instead of clicking unrecognized approval cards. See [Muse approval details](skills/imagegen-swarm/references/muse.md).
+**Fixed in 1.3.3: fail-closed Muse approvals.** Free-text cards no longer grant permission. Only a verified single image-save operation for the exact output path may be approved. No live approval card has been captured (none appeared in a live test on 2026-11-17); if one does appear, the Muse job stops with an error and nothing is clicked. See [Muse approval details](skills/imagegen-swarm/references/muse.md).
 
 ## How the work is shared
 

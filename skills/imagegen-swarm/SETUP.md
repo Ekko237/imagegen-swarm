@@ -45,14 +45,15 @@ Generation does not create these directories.
 The local output parent is created before Muse starts. The approval policy permits only
 "Allow once" for exactly one decoded image-save operation with one path matching this run's
 cloud output after `~`, `.`/`..`, and existing symlink resolution. Creating a cloud directory is
-not auto-approved. Extra operations, paths or arguments, commands, reads and network requests
+not approved by the script. Extra operations, paths or arguments, commands, reads and network requests
 are refused; permission is never inferred from descriptive text.
 
-No captured card currently verifies Muse's operation/path layout. All live approval cards
-therefore fail closed: the job stops with an error saying the shape was not recognized and was
-not clicked. This can stop otherwise legitimate saves. Jobs that require no approval continue
-as before. A verified decoder needs a real captured card before auto-approval can resume; do not
-work around this by matching keywords. See [references/muse.md](references/muse.md).
+No live Muse approval card has been captured, so no operation/path layout is verified. In a
+live test on 2026-11-17, three Muse generations completed and no approval card appeared, so
+ordinary Muse jobs run without any approval step. If a card ever does appear, the script does
+not recognize it: the job stops with an error saying the shape was not recognized and was not
+clicked, and nothing is clicked. Clicking a card would need a verified decoder built from a real
+captured card; do not work around this by matching keywords. See [references/muse.md](references/muse.md).
 
 ## Jimeng binary
 

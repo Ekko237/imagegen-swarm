@@ -1,9 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Docs: clarified Muse approval wording. No live approval card has been captured; in a live test on 2026-11-17 three Muse generations completed with no approval card, so ordinary Muse jobs run without an approval step. If a card does appear, the script stops with an error and clicks nothing. No behavior change.
+
 ## 1.3.3 - 2026-11-17
 
 - **Muse approvals fail closed instead of trusting free-text keywords.** The internal policy permits only "Allow once" for one image-save operation with one path equal to this run's output after the existing normalization. Directory creation, extra operations or arguments, commands, reads, network access and mismatched paths are refused. The `approved` list records only the card actually clicked.
-- No captured approval establishes a verified Muse operation/path layout. The extractor keeps the request unrecognized, so Muse jobs stop with a RuntimeError instead of auto-approving unrecognized cards, including legitimate saves. Jobs without approval cards continue as before. The evidence and requirements for a future decoder are documented in `references/muse.md`; no Muse protocol is assumed.
+- No captured approval establishes a verified Muse operation/path layout. The extractor keeps the request unrecognized, so if a Muse approval card appears, the job stops with a RuntimeError and nothing is clicked. Jobs without approval cards continue as before. The evidence and requirements for a future decoder are documented in `references/muse.md`; no Muse protocol is assumed.
 - Hermetic policy, DOM-double and wait-loop tests cover exact paths, normalization and symlinks, compound requests, command syntax, malformed shapes, labels and refusal without clicks. No real provider or browser was run.
 
 ## 1.3.2 - 2026-11-17

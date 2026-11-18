@@ -27,10 +27,11 @@ forbids it, and no captured run establishes that it is required.
 
 No verified live card decoder is therefore enabled. `APPROVALS` returns the
 observed button label, containing `detail`, and `controls` (actual button labels).
-Its `request` is always null. Every live approval card stops the job through the
-existing RuntimeError path with an explicit "shape was not recognized ... was not
-clicked" error. This includes legitimate save requests. Jobs without approval
-cards continue; prompting, uploads, downloads, renaming and timeouts are unchanged.
+Its `request` is always null. If an approval card ever appears, the job stops
+through the existing RuntimeError path with an explicit "shape was not recognized
+... was not clicked" error and nothing is clicked. No live card has been captured:
+in a live test on 2026-11-17, three Muse generations completed and no approval card
+appeared. Jobs without approval cards continue; prompting, uploads, downloads, renaming and timeouts are unchanged.
 
 ## Internal policy representation
 
@@ -52,7 +53,7 @@ The request must have exactly those two fields. The operation must be
 `save_image`; the path list must contain one nonempty literal path, with no
 whitespace, quotes or shell syntax, matching the trusted `remote`. Detail text
 never supplies permission. Synthetic normalized requests test the policy and
-wait loop; they do not demonstrate live Muse auto-approval support.
+wait loop; they do not demonstrate that a live Muse card can be decoded or clicked.
 
 Before enabling a live decoder, capture a real approval card without credentials
 and add a sanitized fixture. Derive selectors or a strict whole-card grammar from
