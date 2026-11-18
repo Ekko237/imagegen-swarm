@@ -30,8 +30,8 @@ observed button label, containing `detail`, and `controls` (actual button labels
 Its `request` is always null. If an approval card ever appears, the job stops
 through the existing RuntimeError path with an explicit "shape was not recognized
 ... was not clicked" error and nothing is clicked. No live card has been captured:
-in a live test on 2026-11-17, three Muse generations completed and no approval card
-appeared. Jobs without approval cards continue; prompting, uploads, downloads, renaming and timeouts are unchanged.
+in a live test on 2026-11-17, three Muse generations completed and Muse never showed
+an approval card. Jobs where Muse shows no card run normally; prompting, uploads, downloads, renaming and timeouts are unchanged.
 
 ## Internal policy representation
 

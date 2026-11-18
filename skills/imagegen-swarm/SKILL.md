@@ -22,6 +22,12 @@ metadata:
         - $HOME/.config/imagegen-swarm/engine-off
         - $HOME/.config/imagegen-swarm/muse-browser
         - $HOME/.config/imagegen-swarm/models
+        - $HOME/.config/image-gen/engine-off
+        - $HOME/.config/image-gen/muse-browser
+        - $HOME/.codex/auth.json
+        - $HOME/.codex/generated_images
+        - $HOME/.gemini/antigravity-cli/brain
+        - $HOME/.grok/sessions
     envVars:
       - name: PYTHON
         required: false
@@ -55,10 +61,10 @@ metadata:
         description: Optional Lovart wrapper path. The shipped client is scripts/lovart_agent.py.
       - name: LOVART_AGENT_SKILL
         required: false
-        description: Optional override for the Lovart client script. Defaults to scripts/lovart_agent.py.
+        description: Read only by an optional user-made lv wrapper to locate scripts/lovart_agent.py. The bundled scripts do not read it; check.mjs passes it through to its probes.
       - name: OPENAI_API_KEY
         required: false
-        description: Optional pay-per-image key when api.json uses the OpenAI provider.
+        description: Optional pay-per-image key when api.json uses the OpenAI provider. api.json may name a different variable with key_env; that variable is read the same way.
       - name: GEMINI_API_KEY
         required: false
         description: Optional pay-per-image key when api.json uses the Gemini provider.
@@ -83,12 +89,24 @@ metadata:
       - name: IMAGE_GEN_CLIP_MODEL
         required: false
         description: Optional local CLIP ONNX file for the series-mode clip score. Defaults to $HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx. Read only; never downloaded by the skill.
+      - name: https_proxy
+        required: false
+        description: Lower-case form of HTTPS_PROXY, read only when HTTPS_PROXY is unset or empty. Muse browser only.
       - name: IMAGE_GEN_RUN_ID
         required: false
         description: Set by batch.mjs for one run. Work directories are deleted only when they carry this run's marker.
       - name: IMAGE_GEN_SANDBOX_ESCALATE
         required: false
         description: Set to yes only by the user, after they approve a Codex retry outside workspace-write. The agent must not set it.
+      - name: IMAGE_GEN_SCRIPT_DIR
+        required: false
+        description: Test hook. batch.mjs uses this engine-script directory only when IMAGE_GEN_TEST_SCRIPTS is yes. Used by the repository tests.
+      - name: IMAGE_GEN_TEST_SCRIPTS
+        required: false
+        description: Test hook. Set to yes by the repository tests so batch.mjs uses IMAGE_GEN_SCRIPT_DIR.
+      - name: IMAGE_GEN_TEST_NO_KEY
+        required: false
+        description: Test fixture key name. The bundled scripts never read it directly; check.mjs passes it through so a test api.json can name it with key_env.
 ---
 
 # imagegen-swarm
@@ -119,7 +137,7 @@ Privacy: a prompt and any reference images are sent to the external service for 
 actually runs that job (OpenAI, Dreamina, xAI, Google, Muse, Lovart, or the API host in the
 pay-per-image setup). Lovart generation uploads only the reference files named in that job's `ref`
 list (or `--ref` on a single call). `scripts/lovart.mjs` passes each of those paths to
-`upload --file`, and `upload_file` sends that one file to Lovart's CDN. It does not upload the
+`upload --file`, and `upload_reference_image` in `scripts/lovart_client.py` sends that one file to Lovart's CDN (`POST https://lgw.lovart.ai/v1/openapi/file/upload`). It does not upload the
 credentials file, the state file, or any path the user did not name. The `upload` command does the
 same for the single `--file` the user gave it. In series mode, the shared style guide and any series
 reference images are sent to every engine that runs a job in that batch, the same way a job prompt
@@ -128,7 +146,8 @@ content unless the user has agreed that this provider may see it. Add another pr
 the user names that provider and agrees.
 
 An example job list has one object per image. Only `id` and `prompt` are required. A sample file
-lives in the git repository at `examples/jobs.example.json`; it is not part of the installed skill.
+lives in the git repository at <https://github.com/Ekko237/imagegen-swarm/blob/main/examples/jobs.example.json>;
+it is not part of the installed skill.
 
 ```bash
 node scripts/batch.mjs --jobs jobs.json --out out/
@@ -246,6 +265,32 @@ environment into those probes. A batch keeps the environment of the process that
 Lovart generation does the same, adding the three credential names when they were read from the
 credentials file. That file is read as text; only the three names in the table are kept.
 
+## Network and credentials
+
+Every outbound connection the bundled scripts make, and every secret they read. Nothing here runs
+until the user asks for an image, or runs `scripts/check.mjs`. Each engine is optional: its files
+and variables matter only if the user set that engine up. ClawHub lists every `requires.config`
+entry as required; all of them are optional per engine.
+
+| Script | Talks to | When | Credential it reads | What is sent |
+|---|---|---|---|---|
+| `codex-image.mjs` | OpenAI, through the user's `codex` CLI | A job runs on codex | None; `codex` uses its own login | Prompt, reference images |
+| `grok-image.mjs` | xAI, through the user's `grok` CLI | A job runs on grok | None; `grok` uses its own login | Prompt, one reference image |
+| `gemini-image.mjs` | Google, through the user's `agy` (Antigravity) CLI | A job runs on gemini | None; `agy` uses its own login | Prompt, up to 3 reference images |
+| `jimeng-image.mjs`, `jimeng.mjs` | Dreamina, through the user's `dreamina` CLI | A job runs on jimeng | None; `dreamina` uses its own login | Prompt, reference images |
+| `muse-image.py` | `https://muse.ai` in a local Playwright Chromium | A job runs on muse, `--login`, `--list-chats` | Browser session in the Muse profile directory (`IMAGE_GEN_MUSE_PROFILE`) | Prompt, reference images; optional proxy from `HTTPS_PROXY` / `https_proxy` |
+| `lovart.mjs` → `lovart_agent.py` → `lovart_client.py` | `https://lgw.lovart.ai/v1/openapi/...` (or `LOVART_BASE_URL`): `file/upload`, `chat`, `chat/status`, `chat/result`, `project/*`, `mode/*`; then the artifact URLs that Lovart returns | A job runs on lovart | `LOVART_ACCESS_KEY` / `LOVART_SECRET_KEY` from the environment or the file `$HOME/.lovart/env` (`LOVART_ENV`); the access key goes in the `X-Access-Key` header; the secret key only signs each request (HMAC-SHA256) and is never sent | Prompt, the reference files named for the job, project and thread ids |
+| `api-image.mjs` | `https://api.openai.com` (`/v1/images/generations`, `/v1/images/edits`) or `https://generativelanguage.googleapis.com` (`/v1beta/interactions`), or `base_url` from `api.json` | A job runs on the optional paid line | `OPENAI_API_KEY` / `GEMINI_API_KEY`, the variable named by `key_env`, or the mode-600 `key_file` from `api.json` | Prompt, reference images, the key as the provider's auth header |
+| `check.mjs` | Same CLIs and hosts: `grok models`, `agy models`, `dreamina user_credit`, `scripts/muse-image.py --list-chats`, Lovart `mode/query`, and `GET /v1/models` (OpenAI) or `/v1beta/models` (Gemini) | The user runs the check | Same as the engine it probes. For Codex it only tests that `CODEX_HOME/auth.json` exists | No prompts or images; the paid-line check sends only the key |
+
+`batch.mjs`, `imgtool.py`, `lovart_state.py`, and the other helper modules make no network calls.
+Engine CLIs keep their own logins; the scripts never read their contents or copy them. Local files read for
+generation: `$HOME/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs` (the
+transcript of the agy conversation this job started, to find its output), `$HOME/.grok/sessions`
+(media file names and hashes, to reject a reused image), and `CODEX_HOME/generated_images` (hashes
+only). `IMAGE_GEN_SCRIPT_DIR` and `IMAGE_GEN_TEST_SCRIPTS` are test hooks used by the repository
+tests only.
+
 ## Engines
 
 | Engine | Script | Can do | Aspect ratio | Time per image (generation time only) | Quota |
@@ -309,7 +354,7 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   not rename a row it cannot prove is this side chat. It deletes a side chat only when this run
   recorded that chat's id, on success and on failure. If the id was never recorded, it does not
   delete any chat. If deleting the side chat fails after the PNG is saved, the job still succeeds
-  (exit 0) and the success JSON gains a `warnings` list; the key is absent when there is no warning.
+  (exit 0) and the success JSON gains a `warnings` list; the key appears only when cleanup produced a warning.
   Generation failures still exit 1. Before Muse is started, batch creates the output directory and uses its real
   path, and `muse-image.py` creates that file's parent again. A relative `--out` is resolved against
   the current working directory, like the other engine scripts (before 1.3.4 Muse resolved it
@@ -320,9 +365,10 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   and existing symlinks are resolved before comparison. Directory creation, extra operations or
   paths, commands, reads, network access, and unknown arguments are refused. Free-text descriptions
   never grant permission. No live approval card has been captured, so no operation/path layout is
-  verified. In a live test on 2026-11-17 no approval card appeared. If one does, the script leaves
-  it unclicked and stops the job with a RuntimeError saying the card's shape was not recognized.
-  Jobs without approval cards continue.
+  verified. In a live test on 2026-11-17 Muse showed no card at all. The script never clicks an
+  approval card on its own: if a card appears, it leaves the card unclicked and stops the job with
+  a RuntimeError saying the card's shape was not recognized, and the user decides what happens next.
+  Jobs where Muse shows no card run normally.
   See [references/muse.md](references/muse.md) for the evidence and decoder requirements.
   Ask the user before approving a stopped request. `IMAGE_GEN_MUSE_PROFILE` must resolve
   under `$HOME/.config/imagegen-swarm` or be the legacy default
@@ -423,7 +469,8 @@ take the job, the redo stops and the job is reported as stopped by the paid budg
 ```
 
 `ref` paths are relative to the job file. A sample file lives in the git repository at
-`examples/series.jobs.example.json`; it is not part of the installed skill.
+<https://github.com/Ekko237/imagegen-swarm/blob/main/examples/series.jobs.example.json>; it is not part of the
+installed skill.
 
 Style reference images are placed in front of the job's own references, and only as far as that
 engine's limit (Jimeng 10, Gemini 3, Grok 1; Codex, Muse, and Lovart take the references they are

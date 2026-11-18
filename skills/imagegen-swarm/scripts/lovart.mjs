@@ -4,7 +4,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isInvokedDirectly } from "./direct.mjs";
 import { markRunDir } from "./safety.mjs";

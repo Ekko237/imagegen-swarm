@@ -4,7 +4,6 @@ import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import process from "node:process";
 import { childEnv } from "./scoped-env.mjs";
 import { STDIO_DISCARD, STDIO_PIPE } from "./stdio-modes.mjs";
 

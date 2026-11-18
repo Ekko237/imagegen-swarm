@@ -5,7 +5,6 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
-import process from "node:process";
 import { markRunDir, sandboxMayWiden, userApprovedSandboxWiden } from "./safety.mjs";
 import { SHELL_METACHAR } from "./shell-meta.mjs";
 import { STDIO_DISCARD } from "./stdio-modes.mjs";

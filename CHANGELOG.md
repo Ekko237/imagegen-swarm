@@ -8,6 +8,11 @@
 - **Threshold stays 0.72.** `structure` (raw 0.42) and `clip` (raw cosine 0.65) are mapped piecewise linearly so 0.72 is each method's equal-error point, so jobs files that pin `"threshold": 0.72` keep working. Behavior change: with no `method` set, an existing series batch now uses `structure` (or `clip`) instead of the palette score; pass `--style-method palette-histogram` for the 1.3.x behavior.
 - **Report fields.** Kept images record `style_raw_score` and `style_components` next to `style_score`; style redo events and failed jobs carry the components. The summary's `series` adds `method_requested`, `method_reason` (when `auto` decided) and `components` (the weights); `method` is the method actually used. `imgtool.py style` adds `--method`, `raw_score`, `components` and `anchor`; without `--method` it prints the 1.3.x palette output. `imgtool.py backends` reports which methods are available.
 - Hermetic tests (`tests/series-consistency.test.mjs`, in CI) need Pillow only. They use procedural images and six small CC BY / CC0 fixtures with attribution in `tests/fixtures/series-consistency/README.md`, and cover the CLIP fallback. When numpy is installed they also check the CLIP plumbing with a stub runtime. No model or network is used. Still no guarantee of the same face, character or logo: look at every kept image.
+- Muse approval and cleanup-warning docs are reworded to describe the same fail-closed behavior more precisely. No behavior change.
+- The Lovart client upload method is now `upload_reference_image`, with its exact endpoint documented. The `upload` command is unchanged.
+- SKILL.md and skill-card.md gain a "Network and credentials" section listing every host, credential and payload. The frontmatter now declares every env var and read path the scripts use.
+- Internal cleanups (a redundant `node:process` import, a simpler `failureText`) let ClawHub's scanner inspect more of the code. Outputs are unchanged.
+- New regression tests cover `failureText` and the Lovart upload request. `docs/clawhub-scan.md` explains how to reproduce the ClawHub scan and why the remaining findings stay.
 
 ## 1.3.4 - 2026-11-17
 

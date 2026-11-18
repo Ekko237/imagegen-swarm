@@ -39,6 +39,17 @@ Batch image and video generation across the accounts you already have. The agent
 - Series mode stays off by default and is enabled only after you agree. Shared-reference batch hints are informational only. When enabled, series mode sends the shared style guide, and any series reference images, to each engine that runs a job in that batch. Its consistency score runs on your machine with no network call: Pillow only by default, or a CLIP model file only if you downloaded it yourself. The skill never downloads a model.
 - Lovart renames a remote project when its name is empty, `Untitled`, or a short prefix of the project id. `project-add` and `project-rename` also rename the remote project when keys are present. The agent does not run those two commands unless you asked.
 
+## Network and credentials
+
+Full table: "Network and credentials" in [SKILL.md](SKILL.md). Every engine is optional.
+
+- codex, grok, gemini, jimeng: run your own `codex`, `grok`, `agy`, or `dreamina` CLI, which sends the prompt and reference images to OpenAI, xAI, Google, or Dreamina under that CLI's own login. The scripts do not read those logins.
+- muse: a local Chromium opens `https://muse.ai` with the profile you signed in with `--login`. Optional proxy from `HTTPS_PROXY` / `https_proxy`.
+- lovart: signed requests to `https://lgw.lovart.ai` (or `LOVART_BASE_URL`) with `LOVART_ACCESS_KEY` / `LOVART_SECRET_KEY` from the environment or `$HOME/.lovart/env`. The secret only signs requests and is never sent. Uploads only the reference files named for the job, then downloads the returned artifact URLs.
+- api (paid, optional): `https://api.openai.com` or `https://generativelanguage.googleapis.com` (or `base_url` in `api.json`) with `OPENAI_API_KEY`, `GEMINI_API_KEY`, the variable named by `key_env`, or the mode-600 key file.
+- `scripts/check.mjs`: the same hosts and CLIs, for login checks only. The paid-line check calls the free model-list endpoint; no image is generated.
+- Read for generation, never uploaded: `$HOME/.gemini/antigravity-cli/brain` (this job's agy transcript), `$HOME/.grok/sessions` and `CODEX_HOME/generated_images` (hashes, to reject a reused image).
+
 ## Files this skill touches
 
 | File | Read or written | Why |
