@@ -312,7 +312,7 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   and existing symlinks are resolved before comparison. Directory creation, extra operations or
   paths, commands, reads, network access, and unknown arguments are refused. Free-text descriptions
   never grant permission. No live approval card has been captured, so no operation/path layout is
-  verified. In a live test on 2026-11-17 no approval card appeared. If one does, the job stops
+  verified. In a live test on 2026-11-17, three Muse generations completed and no approval card appeared. If one does, the job stops
   with a RuntimeError saying the shape was not recognized and was not clicked; nothing is clicked.
   Jobs without approval cards continue.
   See [references/muse.md](references/muse.md) for the evidence and decoder requirements.
