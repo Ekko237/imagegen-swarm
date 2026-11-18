@@ -492,6 +492,30 @@ def test_generation_failure_still_exits_nonzero():
             assert not out.exists()
 
 
+def test_relative_out_resolves_against_cwd_not_home():
+    with tempfile.TemporaryDirectory(prefix="muse-cwd-") as cwd, \
+         tempfile.TemporaryDirectory(prefix="muse-home-") as home:
+        previous = Path.cwd()
+        try:
+            muse.os.chdir(cwd)
+            with patch.dict(muse.os.environ, {"HOME": home}):
+                prepared = muse.prepare_local_output("renders/out.png")
+                assert prepared == Path(cwd).resolve() / "renders" / "out.png"
+                assert prepared.parent.is_dir()
+                assert not (Path(home) / "renders").exists()
+                # "~" still means the local home.
+                assert muse.prepare_local_output("~/pics/out.png") == Path(home).resolve() / "pics" / "out.png"
+                code, result, _deletes, _stderr = run_main(["--prompt", "a castle", "--out", "sub/x.png"])
+                assert code == 0
+                assert result["path"] == str(Path(cwd).resolve() / "sub" / "x.png")
+                assert (Path(cwd) / "sub" / "x.png").is_file()
+                assert not (Path(home) / "sub").exists()
+        finally:
+            muse.os.chdir(previous)
+    # Approval paths keep resolving relative to the cloud home.
+    assert muse.canonical_output_path("workspace/a.png") == muse.CLOUD_HOME / "workspace" / "a.png"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in list(globals().items()) if name.startswith("test_") and callable(fn)]
     for test in tests:

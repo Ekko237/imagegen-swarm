@@ -307,7 +307,9 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   delete any chat. If deleting the side chat fails after the PNG is saved, the job still succeeds
   (exit 0) and the success JSON gains a `warnings` list; the key is absent when there is no warning.
   Generation failures still exit 1. Before Muse is started, batch creates the output directory and uses its real
-  path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
+  path, and `muse-image.py` creates that file's parent again. A relative `--out` is resolved against
+  the current working directory, like the other engine scripts (before 1.3.4 Muse resolved it
+  against `$HOME`); `~` still means the local home. Muse is told to write the PNG at one
   exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
   the policy permits only "Allow once" for exactly one decoded image-save operation with exactly
   one path equal to this run's output file. `~` is read as `/home/hatch`, `.` and `..` are removed,
