@@ -3,7 +3,7 @@
 This file is in the skill folder. For a plain-folder install, copy or symlink this folder to the
 Claude Code skills directory, or the Codex skills directory, and name the folder `imagegen-swarm`.
 An older copy installed as `image-gen` can be moved to `imagegen-swarm`. Plugin commands are in the
-repository README. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`; series mode uses it to score palette similarity)
+repository README. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`; series mode uses it for its local consistency score)
 on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine
 also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its
 own folder, so never bundle those folders when you share the skill. Set up only the engines you
@@ -30,6 +30,7 @@ Generation does not create these directories.
 | `$HOME/.config/imagegen-swarm/api-key` | API key, mode 600, only if you choose a key file | Paid last resort. Read at request time |
 | `$HOME/.config/imagegen-swarm/api-spend.jsonl` | One JSON line per attempt with confirmed returned image bytes | Compare the batch reservation with the monthly cap |
 | `$HOME/.config/imagegen-swarm/engine-off/<engine>` | One empty file named for that engine | Pause that engine until you delete the file |
+| `$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx` | Optional CLIP image encoder, only if you download it (below). Read only | Series-mode `clip` consistency score |
 
 | Engine | Install and log in | Login lives in |
 |---|---|---|
@@ -193,6 +194,42 @@ umask 077 && printf '%s' 'your-key' > "$HOME/.config/imagegen-swarm/api-key" && 
 
 Then add `"key_file": "$HOME/.config/imagegen-swarm/api-key"` to `api.json`. The spend ledger is
 the file `$HOME/.config/imagegen-swarm/api-spend.jsonl`, one line per attempt with confirmed returned image bytes, including discarded images. Unknown failures never append a row.
+
+## Series consistency (optional CLIP score)
+
+Series mode works without this. With Pillow alone it uses the `structure` score (SSIM, gradient
+orientations and palette). That is a coarse layout check and cannot tell two characters drawn in
+the same style apart. If you want a check that follows the subject, you can install a CLIP model
+yourself. `auto`, the default method, then uses it. The skill never downloads it, and the agent
+should not run these commands for you.
+
+| | |
+|---|---|
+| Model | CLIP ViT-B/32 image encoder, int8 ONNX: `onnx/vision_model_quantized.onnx` from the Hugging Face repository `Xenova/clip-vit-base-patch32` (converted from OpenAI CLIP) |
+| License | MIT |
+| Download and disk | 89 MB (the fp32 `onnx/vision_model.onnx`, 352 MB, also works and measured about the same) |
+| Python packages | `numpy` and `onnxruntime` (CPU), about 130 MB installed together (measured on Linux x86-64) |
+| RAM | about 230 MB while one image is scored (fp32: about 640 MB) |
+| CPU time | about 0.5 s per scored image, including model load (measured on an 8-core x86 CPU); `structure` takes about 0.1 s |
+| Network | only for the download below. Scoring is local |
+
+```bash
+python3 -m pip install numpy onnxruntime
+mkdir -p "$HOME/.config/imagegen-swarm/models"
+curl -L -o "$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx" \
+  https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx
+sha256sum "$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx"
+# expect 583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299
+python3 scripts/imgtool.py backends --verify   # "auto": "clip", and known_model is set
+```
+
+Set `IMAGE_GEN_CLIP_MODEL` to use a file in another place. To go back to the Pillow score, delete
+the file or pass `--style-method structure`. Measured error rates and the data behind them are in
+the repository at `docs/series-consistency-validation.md`.
+
+A paid vision model (one of your image engines, or a multimodal API) as a judge is not built in.
+It would likely judge identity better, but each check would cost a request, take tens of seconds,
+and send every image to that provider.
 
 ## Check
 

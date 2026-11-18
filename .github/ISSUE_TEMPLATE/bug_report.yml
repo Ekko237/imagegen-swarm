@@ -13,7 +13,7 @@ body:
     attributes:
       label: Skill version
       description: Release version or commit you installed; include the installation method.
-      placeholder: "v1.3.4, folder install"
+      placeholder: "v1.4.0, folder install"
     validations:
       required: true
   - type: input

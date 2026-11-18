@@ -16,6 +16,9 @@ import {
   extractGenerated, parseAgyReply, parseEncodedArg, parseToolArgs, parseTranscript, transcriptFile,
 } from '../skills/imagegen-swarm/scripts/gemini-image.mjs';
 
+// What a fake PYTHON prints for `imgtool.py backends`: no CLIP, so auto resolves to structure.
+const FAKE_BACKENDS = JSON.stringify({ methods: { structure: { available: true, weights: { ssim: 0.4, hog: 0.5, palette: 0.1 } }, 'palette-histogram': { available: true }, clip: { available: false, reason: 'fixture' } }, auto: 'structure' });
+
 const here = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'imagegen-swarm', 'scripts');
 const exampleWrapper = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'examples', 'lovart-lv.example.sh');
 let failed = 0;
@@ -275,7 +278,12 @@ async function hintBatch(dir, document, args = []) {
     '#!' + process.execPath,
     "const assert = require('node:assert/strict');",
     "const { appendFileSync, readFileSync } = require('node:fs');",
-    'const args = process.argv.slice(2);',
+    'const raw = process.argv.slice(2);',
+    // batch.mjs probes the scoring backends once, then passes --method on every style call.
+    'if (raw[1] === "backends") { console.log(' + JSON.stringify(FAKE_BACKENDS) + '); process.exit(0); }',
+    'const at = raw.indexOf("--method");',
+    'assert.ok(at > 0, "style call without --method");',
+    'const args = raw.slice(0, at).concat(raw.slice(at + 2));',
     'assert.equal(args.length, 4);',
     'assert.deepEqual(args.slice(0, 2), ' + JSON.stringify([path.join(here, 'imgtool.py'), 'style']) + ');',
     'for (const file of args.slice(2)) assert.ok(readFileSync(file).length > 0);',
@@ -843,7 +851,10 @@ async function chargedBatch(dir, options = {}) {
     '#!' + process.execPath,
     "const assert = require('node:assert/strict');",
     "const { readFileSync } = require('node:fs');",
-    'const [script, command, file, ...anchors] = process.argv.slice(2);',
+    'const raw = process.argv.slice(2);',
+    'if (raw[1] === "backends") { console.log(' + JSON.stringify(FAKE_BACKENDS) + '); process.exit(0); }',
+    'const at = raw.indexOf("--method");',
+    'const [script, command, file, ...anchors] = at > 0 ? raw.slice(0, at).concat(raw.slice(at + 2)) : raw;',
     'assert.equal(script, ' + JSON.stringify(path.join(here, 'imgtool.py')) + ');',
     'const image = JSON.parse(readFileSync(file, "utf8"));',
     'if (command === "size") console.log(JSON.stringify({ width: 2, height: 1 }));',

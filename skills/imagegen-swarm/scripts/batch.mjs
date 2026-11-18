@@ -13,7 +13,7 @@ import {
   keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 import {
-  recordStyleScore, resolveSeriesConfig, shouldHintSeries, splitJobsDocument, styleMeans, stylePrompt,
+  recordStyleScore, resolveSeriesConfig, resolveStyleMethod, shouldHintSeries, splitJobsDocument, styleMeans, stylePrompt,
   styleRefsForEngine, styleRouteAllows, takeStyleScreen,
 } from './series-policy.mjs';
 import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
@@ -80,14 +80,14 @@ function parse(argv) {
   const o = {
     engines: Object.keys(ENGINES), lanes: { ...DEFAULT_LANES }, tries: 3, series: false,
     style: null, styleFile: null, styleRefs: [], styleThreshold: null, styleRetries: null,
-    seriesEngines: null, seriesPrefer: null,
+    seriesEngines: null, seriesPrefer: null, styleMethod: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') {
       console.log('batch.mjs --jobs <jobs.json> --out <dir> [--engines gemini,jimeng,codex,grok,lovart,muse,api] [--lanes gemini=2,muse=1] [--tries 3]\n' +
         '[--series] [--style <text> | --style-file <path>] [--style-ref <image>]... [--style-threshold 0.72] [--style-retries 2]\n' +
-        '[--series-engines gemini,jimeng] [--series-prefer consistent|off]\n' +
+        '[--series-engines gemini,jimeng] [--series-prefer consistent|off] [--style-method auto|structure|clip|palette-histogram]\n' +
         'api is the pay-per-image last resort. It runs only after the user sets it up (see SETUP.md).\n' +
         'It spends price_per_image on images in this job list that no subscription engine can take, and stops at the budgets in that setup.\n' +
         'jobs.json: [{"id": "cat", "prompt": "...", "ref": ["a.png"], "aspect": "1:1", "video": false, "engine": "gemini"}]（ref、aspect、video、engine 可省）\n' +
@@ -109,6 +109,7 @@ function parse(argv) {
     else if (flag === '--style-retries') o.styleRetries = value;
     else if (flag === '--series-engines') o.seriesEngines = value.split(',').map(name => name.trim()).filter(Boolean);
     else if (flag === '--series-prefer') o.seriesPrefer = value;
+    else if (flag === '--style-method') o.styleMethod = value;
     else throw new Error("invalid argument: " + (flag));
   }
   if (!o.jobs || !o.out) throw new Error('require --jobs and --out');
@@ -143,12 +144,19 @@ function runProcess(bin, args, onChild) {
 
 // 清单写了比例的图，交回的宽高比差超过 3% 就不算数（codex、lovart、muse 的比例只写在说明里，偶尔不照做）
 const PY = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
-async function scoreStyle(file, anchors) {
-  const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'style', file, ...anchors]);
+// Returns the imgtool JSON: method, score (0 to 1), raw_score and components.
+async function scoreStyle(file, anchors, method) {
+  const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'style', file, ...anchors, '--method', method]);
   if (r.code !== 0) throw new Error("imgtool style failed on " + (file) + ": " + (r.stderr));
-  const score = Number(JSON.parse(r.stdout).score);
-  if (!Number.isFinite(score)) throw new Error("imgtool style returned no score");
-  return score;
+  const result = JSON.parse(r.stdout);
+  if (!Number.isFinite(Number(result.score))) throw new Error("imgtool style returned no score");
+  return { ...result, score: Number(result.score) };
+}
+// Which optional scoring backends are installed. Local check only; never downloads a model.
+async function styleBackends() {
+  const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'backends']);
+  if (r.code !== 0) throw new Error("imgtool backends failed: " + (r.stderr));
+  return JSON.parse(r.stdout);
 }
 async function ratioOff(file, aspect) {
   const r = await runProcess(PY, [path.join(here, 'imgtool.py'), 'size', file]);
@@ -179,10 +187,10 @@ async function main() {
     flag: o.series, fileSeries: split.series, root: split.root,
     cli: {
       style: styleText, threshold: o.styleThreshold, maxRetries: o.styleRetries,
-      engines: o.seriesEngines, prefer: o.seriesPrefer, refs: o.styleRefs,
+      engines: o.seriesEngines, prefer: o.seriesPrefer, refs: o.styleRefs, method: o.styleMethod,
     },
   });
-  const seriesOptions = o.style || o.styleFile || o.styleRefs.length || o.seriesEngines || o.styleThreshold || o.styleRetries || o.seriesPrefer;
+  const seriesOptions = o.style || o.styleFile || o.styleRefs.length || o.seriesEngines || o.styleThreshold || o.styleRetries || o.seriesPrefer || o.styleMethod;
   if (!series.enabled && seriesOptions) throw new Error('series options need --series, or "series" in the jobs file');
   const jobs = split.jobs;
   const base = path.dirname(o.jobs);
@@ -213,6 +221,14 @@ async function main() {
       if (!available.length) throw new Error("series engines are not in this batch: " + (series.engines.join(',')));
       series.engines = available;
     }
+    // One method for the whole batch, so engine means compare like with like.
+    // The probe also checks Python and Pillow before any engine starts.
+    series.methodRequested = series.method;
+    const backends = await styleBackends();
+    const resolved = resolveStyleMethod(series.method, backends);
+    series.method = resolved.method;
+    series.methodReason = resolved.reason;
+    series.components = backends.methods?.[series.method]?.weights ?? null;
   }
   o.out = await prepareOutputDir(o.out);
   if (seriesHint) {
@@ -395,7 +411,7 @@ async function main() {
     if (disposition === 'win' && series.enabled && !job.video) {
       let screened = null;
       try {
-        screened = await takeStyleScreen(series, job, anchors => scoreStyle(temp, anchors), undefined);
+        screened = await takeStyleScreen(series, job, anchors => scoreStyle(temp, anchors, series.method), undefined);
       } catch (error) {
         if (job.won || record.outcome === 'cancelled') {
           if (series.anchorJob === job.id && !series.visualAnchor) series.anchorJob = null;
@@ -418,18 +434,19 @@ async function main() {
           await rm(temp, { force: true });
           record.outcome = screened.action === 'redo' ? 'style_redo' : 'style_rejected';
           record.style_score = screened.score;
+          if (screened.detail?.components) record.style_components = screened.detail.components;
           recordStyleScore(series.stats, engine, screened.score);
           job.styleRedos = screened.redos;
           const reason = "style score " + (screened.score) + " below " + (series.threshold);
           job.reason = reason;
-          log({ event: record.outcome, id: job.id, engine, score: screened.score, redos: screened.redos, threshold: series.threshold });
+          log({ event: record.outcome, id: job.id, engine, score: screened.score, redos: screened.redos, threshold: series.threshold, method: series.method, components: screened.detail?.components });
           if (screened.action === 'redo') untry(job, engine);
           else job.styleExhausted = true;
           if (!job.won && !job.active.length) {
             if (screened.action === 'redo') {
               requeue(job);
             } else {
-              failed.push({ id: job.id, tried: job.tried, reason, style_score: screened.score, style_redos: screened.redos });
+              failed.push({ id: job.id, tried: job.tried, reason, style_score: screened.score, style_redos: screened.redos, style_components: screened.detail?.components });
               log({ event: 'failed', id: job.id, reason });
             }
           }
@@ -438,6 +455,8 @@ async function main() {
         if (typeof screened.score === 'number') {
           recordStyleScore(series.stats, engine, screened.score);
           record.style_score = screened.score;
+          if (screened.detail?.components) record.style_components = screened.detail.components;
+          if (screened.detail?.raw_score != null) record.style_raw_score = screened.detail.raw_score;
         }
         if (screened.claim) record.style_anchor = true;
       }
@@ -459,6 +478,8 @@ async function main() {
       const seconds = Math.round((Date.parse(record.finished) - Date.parse(record.started)) / 1000);
       const saved = { id: job.id, file: job.file, engine, lane: n, seconds, started: record.started, finished: record.finished };
       if (record.style_score != null) saved.style_score = record.style_score;
+      if (record.style_raw_score != null) saved.style_raw_score = record.style_raw_score;
+      if (record.style_components) saved.style_components = record.style_components;
       if (record.style_anchor) saved.style_anchor = true;
       done.push(saved);
       log({ event: 'done', id: job.id, engine, seconds });
@@ -494,7 +515,7 @@ async function main() {
     // 别家还在做这张就不退回队列。风格次数用尽后不再退回。
     if (!job.active.length && !job.won) {
       if (job.styleExhausted) {
-        failed.push({ id: job.id, tried: job.tried, reason: job.reason, style_score: record.style_score, style_redos: job.styleRedos });
+        failed.push({ id: job.id, tried: job.tried, reason: job.reason, style_score: record.style_score, style_redos: job.styleRedos, style_components: record.style_components });
         log({ event: 'failed', id: job.id, reason: job.reason });
       } else {
         requeue(job);
@@ -558,7 +579,7 @@ async function main() {
   log({
     event: 'lanes', memory_gb: Math.round(MEMORY_GB),
     lanes: Object.fromEntries(o.engines.map(engine => [engine, o.lanes[engine] ?? 0])),
-    ...(series.enabled ? { series: { method: series.method, threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer, engines: series.engines } } : {}),
+    ...(series.enabled ? { series: { method: series.method, method_requested: series.methodRequested, method_reason: series.methodReason ?? undefined, threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer, engines: series.engines } } : {}),
   });
   const lanes = o.engines.flatMap(engine => Array.from({ length: o.lanes[engine] ?? 0 }, (_, n) => lane(engine, n + 1)));
   await Promise.all(lanes);
@@ -592,7 +613,9 @@ async function main() {
   const keep = { ...keepCounts(attempts), resumed: done.filter(d => d.engine === 'existing').length };
   const delivery_seconds = Math.round((Date.now() - start) / 1000);
   const seriesReport = series.enabled ? {
-    method: series.method, threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer,
+    method: series.method, method_requested: series.methodRequested, ...(series.methodReason ? { method_reason: series.methodReason } : {}),
+    ...(series.components ? { components: series.components } : {}),
+    threshold: series.threshold, max_retries: series.maxRetries, prefer: series.prefer,
     engines: series.engines, text_only_engines: [...series.textOnly], partial_ref_engines: [...series.partial],
     engine_style: styleMeans(series.stats),
   } : undefined;

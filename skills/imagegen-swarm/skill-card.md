@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs when a job names it, or when no enabled subscription engine can take that job, and only after you set a budget."
-version: 1.3.4
+version: 1.4.0
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:
@@ -21,6 +21,7 @@ metadata:
         - $HOME/.config/imagegen-swarm/api-spend.jsonl
         - $HOME/.config/imagegen-swarm/engine-off
         - $HOME/.config/imagegen-swarm/muse-browser
+        - $HOME/.config/imagegen-swarm/models
 ---
 
 # imagegen-swarm
@@ -35,7 +36,7 @@ Batch image and video generation across the accounts you already have. The agent
 - Muse deletes a side chat only when this run recorded that chat's id. If the id was never recorded, no chat is deleted.
 - `IMAGE_GEN_MUSE_PROFILE` must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default `$HOME/.config/image-gen/muse-browser`.
 - Lovart generation uploads only the reference files named for that job. It does not upload credentials or other local files.
-- Series mode stays off by default and is enabled only after you agree. Shared-reference batch hints are informational only. When enabled, series mode sends the shared style guide, and any series reference images, to each engine that runs a job in that batch.
+- Series mode stays off by default and is enabled only after you agree. Shared-reference batch hints are informational only. When enabled, series mode sends the shared style guide, and any series reference images, to each engine that runs a job in that batch. Its consistency score runs on your machine with no network call: Pillow only by default, or a CLIP model file only if you downloaded it yourself. The skill never downloads a model.
 - Lovart renames a remote project when its name is empty, `Untitled`, or a short prefix of the project id. `project-add` and `project-rename` also rename the remote project when keys are present. The agent does not run those two commands unless you asked.
 
 ## Files this skill touches
@@ -49,5 +50,6 @@ Batch image and video generation across the accounts you already have. The agent
 | `$HOME/.config/imagegen-swarm/api-spend.jsonl` | Confirmed returned image bytes append one line per attempt | Monthly estimate |
 | `$HOME/.config/imagegen-swarm/engine-off/<engine>` | You create or delete the empty file | Pause one engine |
 | `$HOME/.config/imagegen-swarm/muse-browser` | Created only by `scripts/muse-image.py --login` | Muse browser profile |
+| `$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx` | You download it, only if you want the optional CLIP score. Read only | Series-mode consistency score (`IMAGE_GEN_CLIP_MODEL` can point elsewhere) |
 
 `node scripts/batch.mjs` keeps the environment of the process that launched it. It does not ask for confirmation on a machine that is already set up.

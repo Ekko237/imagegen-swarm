@@ -34,6 +34,8 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 上面图里的分钟数只算生成时间。
 某家额度用完，别家接过它的活。
 
+**1.4.0 新增：[系列图模式](#系列图模式)的一致性检查换代。** 默认不再只比调色板，改用只依赖 Pillow 的结构分；也可以自己装一个本地 CLIP 模型。两种都在 4,947 对标注过的真实图片上测过。
+
 **1.3.0 新增：[系列图模式](#系列图模式)。** 同一角色、同一品牌或一套封面，每家引擎共用一段风格说明。
 
 **1.3.1 新增：系列图模式提醒。** 只提示，不会自动开启，生成行为不变。
@@ -183,10 +185,21 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --serie
 ```
 
 - 同一段风格说明，加上风格参考图，发给每一家引擎。
-- 每张图按调色板和亮度打分。分偏低的丢掉，退回队列，优先交给目前风格最齐的那家引擎。
+- 每张图在本地和参考图比对打分（没有参考图时，和第一张留下的图比）。分偏低的丢掉，退回队列，优先交给目前风格最齐的那家引擎。
 - 摘要里，丢掉的次数在 `keep.style_redos`。`delivery_seconds` 是写到摘要为止的墙钟，含这次打分和这些重做。
 
-这个分数只看调色板和亮度，不认脸、角色或标志。真实的多引擎系列，保留率没有测过。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode)。
+检查什么（`series.method` 或 `--style-method`；打分从不联网）：
+
+| 方法 | 需要 | 比的是 | 不同对象被留下 | 同一对象被丢掉 |
+| --- | --- | --- | ---: | ---: |
+| `auto`（默认） | — | 装了 `clip` 就用它，否则用 `structure` | | |
+| `structure` | Pillow | 构图、线条、画法：0.4 × SSIM + 0.5 × 梯度方向网格 + 0.1 × 调色板 | 31% | 26% |
+| `clip` | numpy、onnxruntime，以及你自己下载的 89 MB CLIP ViT-B/32 模型（MIT 许可），见 [SETUP.md](skills/imagegen-swarm/SETUP.md#series-consistency-optional-clip-score) | 画的是不是同一个对象（图像向量）；每张约 0.5 秒、约 230 MB 内存 | 11% | 10% |
+| `palette-histogram` | Pillow | 只看颜色和亮度（1.3.x 的分数） | 6% | 76% |
+
+比例是在默认阈值 0.72 下，用 4,947 对标注过的真实插画、标志和照片测的（[验证报告](docs/series-consistency-validation.md)，英文）。`structure` 和 `clip` 都校准过，0.72 正好是各自实测的工作点，所以旧的任务文件照常能用。摘要里有实际用的方法，以及每张留下的图的 `style_score`、`style_raw_score` 和 `style_components`。
+
+仍然保证不了的：没有哪种方法能确认是同一张脸、同一个角色或同一个标志。`structure` 分不出同一画风下的两个角色，`clip` 大约十次仍错一次。真实的多引擎系列，保留率没有测过。交付前逐张看。全部参数见 [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode)。
 
 ## 保留率
 
@@ -207,7 +220,7 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --serie
 
 `generated` 等于 `kept` + `redone` + `duplicates` + `style_redos`。引擎报错、超时、额度用完时没有文件，不进 `keep`。这张图仍会换一家再试，最多 `--tries` 家（默认 3）。同一份摘要里的 `done` 是存下来的任务加上跳过的任务。`elapsed_seconds` 只算生成时间。`delivery_seconds` 是写到摘要为止的墙钟，系列模式里含风格打分和风格重做。
 
-`keep` 覆盖这些自动检查：文件是这一次新生成的，不是参考图原样，任务写了比例时偏差在 3% 以内，系列模式里调色板分还要达到阈值。调色板分不判断是不是同一个人。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
+`keep` 覆盖这些自动检查：文件是这一次新生成的，不是参考图原样，任务写了比例时偏差在 3% 以内，系列模式里一致性分还要达到阈值。这个分数不能证明是同一个人。`tests/evals/evals.json` 里的固定任务用 1 到 5 分的内容量表，4 分及以上算通过。批量测试会把同一个 `keep` 写进结果行。仓库里有量表，没有打过分的运行记录。
 
 同一角色、同一品牌或一套封面，见[系列图模式](#系列图模式)。交付前仍要逐张看。
 
@@ -266,6 +279,7 @@ Claude Code 和 Codex。
 node tests/evals/run.mjs out/                         # 全部固定测试，含一批混合抢活
 node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 node tests/series.test.mjs                    # 系列模式、假引擎、调色板分数
+node tests/series-consistency.test.mjs        # 结构分、CLIP 回退，真实图片和程序生成的图
 ```
 
 </details>
@@ -275,8 +289,8 @@ node tests/series.test.mjs                    # 系列模式、假引擎、调�
 
 ```
 ├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references
-├─ docs/                    README 配图
-├─ tests/                   可靠性和系列模式测试；tests/evals/ 放评测脚本和用例
+├─ docs/                    README 配图，以及系列一致性验证报告
+├─ tests/                   可靠性和系列模式测试；tests/evals/ 放评测脚本、用例和系列一致性验证；tests/fixtures/ 放少量有许可的小图
 ├─ examples/                示例任务文件和 Lovart 包装脚本
 ├─ AGENTS.md                交给 agent 时的入口
 ├─ CHANGELOG.md             版本说明

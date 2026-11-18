@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.3.4
+version: 1.4.0
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -21,6 +21,7 @@ metadata:
         - $HOME/.config/imagegen-swarm/api-spend.jsonl
         - $HOME/.config/imagegen-swarm/engine-off
         - $HOME/.config/imagegen-swarm/muse-browser
+        - $HOME/.config/imagegen-swarm/models
     envVars:
       - name: PYTHON
         required: false
@@ -79,6 +80,9 @@ metadata:
       - name: HTTPS_PROXY
         required: false
         description: Optional proxy for the Muse browser only.
+      - name: IMAGE_GEN_CLIP_MODEL
+        required: false
+        description: Optional local CLIP ONNX file for the series-mode clip score. Defaults to $HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx. Read only; never downloaded by the skill.
       - name: IMAGE_GEN_RUN_ID
         required: false
         description: Set by batch.mjs for one run. Work directories are deleted only when they carry this run's marker.
@@ -393,8 +397,8 @@ node scripts/batch.mjs --jobs jobs.json --out out/ --series --style-file style.t
 ```
 
 This command generates each job through the engine queue and appends the style guide from
-`style.txt` to its prompt. It scores each returned image locally with Pillow against
-`anchors/hero.png`, using a palette histogram and luminance grid, with no network call for scoring.
+`style.txt` to its prompt. It scores each returned image locally against `anchors/hero.png`
+(method `auto`, see below), with no network call for scoring.
 Low-score images are discarded and requeued up to `max_retries`. Every charged paid image
 counts toward both the batch and month caps, even if discarded. Before a redo, both caps are
 checked again. If another paid image would exceed either cap and no subscription engine can
@@ -406,6 +410,7 @@ take the job, the redo stops and the job is reported as stopped by the paid budg
     "style": "the same illustrated heroine, flat gouache, muted teal and cream, thick ink outlines, no text",
     "ref": ["anchors/hero.png"],
     "threshold": 0.72,
+    "method": "auto",
     "max_retries": 2,
     "engines": ["jimeng", "gemini"],
     "prefer": "consistent"
@@ -427,12 +432,35 @@ that slot is the motion source. When the slot is already full, that engine gets 
 only. The first time this happens, the log has `style_text_only` (no style image attached) or
 `style_refs_partial` (some of the style images attached). The summary lists those engines.
 
-After an engine writes an image, batch scores it locally with Pillow (`imgtool.py style`). There is
-no CLIP model and no network call. The method is `palette-histogram`: resize to 64×64, then
-0.8 × the cosine similarity of an 8-bin joint RGB histogram, plus 0.2 × the cosine similarity of a
-4×4 luminance grid. The score is from 0 to 1. On solid-color fixtures, an identical image scores 1
-and a complementary color scores 0.2. A real multi-engine series was not measured. The default
-threshold is 0.72 (`--style-threshold` or `series.threshold`).
+After an engine writes an image, batch scores it locally (`imgtool.py style`), with no network
+call. The method (`series.method` or `--style-method`) is one of:
+
+| Method | Needs | What it compares |
+|---|---|---|
+| `auto` (default) | — | `clip` when its optional backend is installed, otherwise `structure`. Chosen once per batch; the log line `lanes` and the summary show the method used and why |
+| `structure` | Pillow | 0.4 × grayscale SSIM + 0.5 × a 4×4 grid of gradient-orientation histograms (HOG-like) + 0.1 × the palette score, at 64×64. Layout, linework and rendering |
+| `clip` | numpy, onnxruntime and a CLIP ViT-B/32 ONNX file the user installed (SETUP.md, Series consistency) | cosine similarity of CLIP image embeddings. Closest to "same subject" |
+| `palette-histogram` (or `palette`) | Pillow | the 1.3.x score: 0.8 × cosine of an 8-bin RGB histogram + 0.2 × cosine of a 4×4 luminance grid |
+
+Never download the CLIP model, or install numpy or onnxruntime, for the user. If they ask for the
+clip method, point them to SETUP.md and let them do it. An explicit `clip` request without the
+backend stops before any engine starts; `auto` falls back to `structure`.
+
+Every score is from 0 to 1 and the default threshold is 0.72 for every method (`--style-threshold`
+or `series.threshold`). `structure` and `clip` are calibrated so that 0.72 is each one's measured
+operating point; `palette-histogram` is unchanged. Measured on 4,947 labeled real-image pairs
+(docs/series-consistency-validation.md in the git repository), at 0.72:
+
+| Method | Different subjects kept | Same subjects rejected | AUC |
+|---|---:|---:|---:|
+| `palette-histogram` | 6% | 76% | 0.69 |
+| `structure` | 31% | 26% | 0.79 |
+| `clip` (int8 model) | 11% | 10% | 0.96 |
+
+The palette score rejected most real same-subject pairs and could not tell two different subjects
+with the same colors apart. `structure` is a coarse layout screen; it cannot tell two characters
+drawn by the same artist apart. `clip` is the only one that tracks the subject, and it is still
+wrong about one time in ten.
 
 With style reference images, every output is scored against each reference and the highest of
 those scores is used. With text only, the first kept image becomes the visual anchor and is not
@@ -447,9 +475,13 @@ list. `prefer: "off"` keeps the full swarm and still screens.
 
 `elapsed_seconds` stays generation time. `delivery_seconds` is the wall clock through the summary,
 including style screening and style redos. Both are on the summary line and in
-`out/batch-results.json`, with each kept image's `style_score`.
+`out/batch-results.json`, with each kept image's `style_score` (calibrated), `style_raw_score` and
+`style_components` (for `structure`: `ssim`, `hog`, `palette`; for `clip`: `clip_cosine`; for
+`palette-histogram`: `histogram`, `luminance_grid`). Redo events and failed jobs carry the
+components too. The summary's `series` has `method` (used), `method_requested`, `method_reason`
+when `auto` decided, `components` (the weights) and `threshold`.
 
-Screening does not recognize a face, a character, or a logo. Look at every kept image before
+No method guarantees the same face, character, or logo. Look at every kept image before
 delivering it. An output that already exists is skipped and is not scored. Grok and Jimeng treat a
 reference as an edit, so one style reference turns a text-to-image call into an edit. A Grok edit
 keeps the source aspect ratio.
@@ -459,6 +491,7 @@ keeps the source aspect ratio.
 | style text | `series.style`, or `series` as a string | `--style` or `--style-file` | required when series mode is on |
 | reference images | `series.ref` | `--style-ref`, repeatable | none |
 | threshold | `series.threshold` | `--style-threshold` | 0.72 |
+| method | `series.method` | `--style-method auto`, `structure`, `clip`, or `palette-histogram` | `auto` |
 | retries | `series.max_retries` | `--style-retries` | 2 |
 | engines | `series.engines` | `--series-engines` | every engine in this batch |
 | routing | `series.prefer` | `--series-prefer consistent` or `off` | `consistent` |
@@ -476,9 +509,9 @@ the user named fails, report it instead of switching to the web.
 - `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits).
   With the api line configured, it checks the key against the free model-list endpoint and shows
   this month's spend and budget.
-- After changing a script, run `node tests/reliability.test.mjs` and `node tests/series.test.mjs`
-  from the git repository first (no paid images; series tests use mock engines and solid-color
-  fixtures). `reliability.test.mjs` runs `batch.mjs` for real to check when the paid line does and
+- After changing a script, run `node tests/reliability.test.mjs`, `node tests/series.test.mjs` and
+  `node tests/series-consistency.test.mjs` from the git repository first (no paid images; series
+  tests use mock engines, procedural images and six small licensed fixtures). `reliability.test.mjs` runs `batch.mjs` for real to check when the paid line does and
   does not take an image. Those tests are not part of the installed skill.
 - Look at every image before delivering it; sample frames from videos.
 - The fixed image tasks live in the git repository at `tests/evals/`, not in the installed skill.

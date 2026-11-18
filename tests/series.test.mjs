@@ -117,6 +117,7 @@ check('series turns on from the flag, from true, or from a style string', () => 
   assert.equal(fromFlag.threshold, 0.72);
   assert.equal(fromFlag.maxRetries, 2);
   assert.equal(fromFlag.prefer, 'consistent');
+  assert.equal(fromFlag.method, 'auto');
   const doc = splitJobsDocument({
     series: { style: 'same heroine', ref: ['hero.png'], threshold: 0.5, max_retries: 1, engines: ['gemini'], prefer: 'off' },
     jobs: [{ id: 'cover', prompt: 'at a window' }],
@@ -163,6 +164,8 @@ async function styleOf(output, anchors) {
   return JSON.parse(r.stdout);
 }
 
+// Solid colors only exercise the 1.3.x palette score. The structure score is tested on
+// textured and real images in tests/series-consistency.test.mjs.
 await checkAsync('palette score is 1 for the same color and low for a complementary color', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'style-score-'));
   try {
@@ -233,6 +236,8 @@ async function fakeBatch(dir, jobs, args, colors) {
     IMAGE_GEN_FAKE_STATE: path.join(dir, 'state.json'),
     IMAGE_GEN_FAKE_FIRST: colors?.first ?? blue,
     IMAGE_GEN_FAKE_REST: colors?.rest ?? blue,
+    // Keep these runs hermetic even when a real CLIP model is installed on this machine.
+    IMAGE_GEN_CLIP_MODEL: path.join(dir, 'no-clip-model.onnx'),
   };
   const r = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', path.join(dir, 'jobs.json'), '--out', path.join(dir, 'out'), ...args], env);
   const events = r.stdout.trim() ? r.stdout.trim().split('\n').map(line => JSON.parse(line)) : [];
@@ -247,7 +252,7 @@ await checkAsync('series mode screens a mock engine and requeues a low score', a
     await writePng(anchor, '20,40,220');
     const runResult = await fakeBatch(dir, [{ id: 'cover', prompt: 'the heroine at a window' }], [
       '--engines', 'gemini', '--lanes', 'gemini=1', '--series', '--style', 'flat gouache, thick outlines',
-      '--style-ref', anchor, '--style-threshold', '0.72', '--style-retries', '2',
+      '--style-ref', anchor, '--style-threshold', '0.72', '--style-retries', '2', '--style-method', 'palette-histogram',
     ], { first: path.join(dir, 'red.png'), rest: path.join(dir, 'blue.png') });
     assert.equal(runResult.code, 0, JSON.stringify(runResult.events) + runResult.stderr);
     const summary = runResult.events.at(-1);
@@ -260,6 +265,7 @@ await checkAsync('series mode screens a mock engine and requeues a low score', a
     assert.equal(typeof summary.delivery_seconds, 'number');
     assert.ok(summary.delivery_seconds >= summary.elapsed_seconds);
     assert.equal(summary.series.method, 'palette-histogram');
+    assert.equal(summary.series.method_requested, 'palette-histogram');
     assert.equal(summary.series.threshold, 0.72);
     assert.deepEqual(summary.series.text_only_engines, []);
     assert.ok(summary.results === undefined);

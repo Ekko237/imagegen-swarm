@@ -27,6 +27,8 @@
 
 Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue. The minutes in the chart are generation time only. When one engine hits its quota limit, the remaining engines pick up its work.
 
+**New in 1.4.0: a better [series-mode](#series-mode) consistency check.** The old palette score is replaced by a Pillow-only structure score by default, with an optional local CLIP model you can install yourself. Both were measured on 4,947 labeled real-image pairs.
+
 **New in 1.3.0: [series mode](#series-mode).** For the same character, the same brand, or a cover set, every engine shares one style guide.
 
 **New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
@@ -176,10 +178,21 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --serie
 ```
 
 * One style guide and the style reference images go to every engine.
-* Each image is screened on palette and brightness. An outlier is discarded and put back on the queue, preferring the most consistent engine so far.
+* Each image is scored locally against the reference images (or, without them, against the first kept image). An outlier is discarded and put back on the queue, preferring the most consistent engine so far.
 * The summary counts those discards in `keep.style_redos`. `delivery_seconds` is the wall clock until the summary, including that screening and those redos.
 
-The score is palette and brightness only. It does not recognize a face, a character, or a logo. A keep rate was not measured on a real multi-engine series. All options are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
+What is checked (`series.method` or `--style-method`; scoring never uses the network):
+
+| Method | Needs | Checks | Different subjects kept | Same subjects rejected |
+| --- | --- | --- | ---: | ---: |
+| `auto` (default) | — | `clip` if installed, otherwise `structure` | | |
+| `structure` | Pillow | layout, linework, rendering: 0.4 × SSIM + 0.5 × gradient-orientation grid + 0.1 × palette | 31% | 26% |
+| `clip` | numpy, onnxruntime, an 89 MB CLIP ViT-B/32 model (MIT) you download yourself, [SETUP.md](skills/imagegen-swarm/SETUP.md#series-consistency-optional-clip-score) | the subject, via image embeddings; ~0.5 s and ~230 MB RAM per image | 11% | 10% |
+| `palette-histogram` | Pillow | colors and brightness only (the 1.3.x score) | 6% | 76% |
+
+Rates are at the default threshold 0.72, measured on 4,947 labeled pairs of real artwork, logos and photos ([validation](docs/series-consistency-validation.md)). `structure` and `clip` are calibrated so 0.72 is each one's measured operating point, so existing jobs files keep working. The summary reports the method used, each kept image's `style_score`, `style_raw_score` and `style_components`.
+
+What still can't be guaranteed: no method confirms the same face, character, or logo. `structure` cannot tell two characters drawn in the same style apart, and `clip` is still wrong about one time in ten. A keep rate was not measured on a real multi-engine series. Look at every kept image. All options are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
 
 ## Keep rate
 
@@ -200,7 +213,7 @@ After a batch, the last JSON line and `out/batch-results.json` include `keep`, c
 
 `generated` adds up as `kept` + `redone` + `duplicates` + `style_redos`. An engine error, a timeout, or a quota failure returns no file, so it stays out of `keep`. The job is still retried on another engine, up to `--tries` (default 3). `done` on the same summary is saved jobs plus resumed jobs. `elapsed_seconds` is generation time only. `delivery_seconds` is the wall clock until the summary, and in series mode that includes style screening and style redos.
 
-`keep` counts those automatic checks: the file is new from this run, it is not a copy of a reference image, the aspect ratio is within 3% when the job set one, and, in series mode, the palette score is at least the threshold. The palette score does not judge character identity. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
+`keep` counts those automatic checks: the file is new from this run, it is not a copy of a reference image, the aspect ratio is within 3% when the job set one, and, in series mode, the consistency score is at least the threshold. That score does not prove character identity. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
 
 For a same-character, same-brand, or cover series, see [series mode](#series-mode). Still look at every kept file.
 
@@ -262,6 +275,7 @@ node tests/evals/run.mjs out/                         # every fixed task, includ
 node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 node tests/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
 node tests/series.test.mjs                    # series anchor, mock engines, palette score
+node tests/series-consistency.test.mjs        # structure / clip-fallback scores, real and procedural fixtures
 python3 tests/reliability_rename_test.py      # Muse rename and fail-closed approval checks
 ```
 
@@ -272,8 +286,8 @@ python3 tests/reliability_rename_test.py      # Muse rename and fail-closed appr
 
 ```
 ├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references
-├─ docs/                    README images
-├─ tests/                   reliability and series tests; tests/evals/ has the eval runner and spec
+├─ docs/                    README images and the series-consistency validation report
+├─ tests/                   reliability and series tests; tests/evals/ has the eval runner, spec and series-consistency validation; tests/fixtures/ has small licensed images
 ├─ examples/                example job files and the Lovart wrapper script
 ├─ AGENTS.md                entry point for an agent handed this repo
 ├─ CHANGELOG.md             release notes
