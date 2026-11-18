@@ -185,23 +185,26 @@ def clip_model_path():
     return os.path.join(os.path.expanduser("~"), ".config", "imagegen-swarm", "models", CLIP_MODEL_NAME)
 
 
-def clip_status(verify=False):
+def clip_status(hash_model=False):
     """Is the optional CLIP backend usable? Never downloads anything."""
     path = clip_model_path()
     status = {"available": False, "model": path}
     missing = []
-    for module in ("numpy", "onnxruntime"):
-        try:
-            __import__(module)
-        except Exception:
-            missing.append(module)
+    try:
+        import numpy  # noqa: F401
+    except Exception:
+        missing.append("numpy")
+    try:
+        import onnxruntime  # noqa: F401
+    except Exception:
+        missing.append("onnxruntime")
     if missing:
         status["reason"] = "missing Python package(s): " + ", ".join(missing)
         return status
     if not os.path.isfile(path):
         status["reason"] = "model file not found (optional; see SETUP.md, Series consistency)"
         return status
-    if verify:
+    if hash_model:
         digest = hashlib.sha256()
         with open(path, "rb") as handle:
             for block in iter(lambda: handle.read(1 << 20), b""):
@@ -299,8 +302,8 @@ def style_score(output, anchors, method=PALETTE):
     return result
 
 
-def backends(verify=False):
-    clip = clip_status(verify=verify)
+def backends(hash_model=False):
+    clip = clip_status(hash_model=hash_model)
     return {
         "methods": {
             STRUCTURE: {"available": True, "weights": STRUCTURE_WEIGHTS},
@@ -340,7 +343,7 @@ def main():
         print(json.dumps(style_score(output, anchors, method)))
         return
     if command == "backends":
-        print(json.dumps(backends(verify="--verify" in sys.argv[2:])))
+        print(json.dumps(backends(hash_model="--verify" in sys.argv[2:])))
         return
     path = sys.argv[2]
     with Image.open(path) as image:
