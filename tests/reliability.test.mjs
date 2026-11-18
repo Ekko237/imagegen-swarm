@@ -495,6 +495,27 @@ await checkAsync('lovart wrapper accepts mode 600 on Linux and still surfaces no
   }
 });
 
+await checkAsync('lovart wrapper finds the shipped client from its checkout location', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'lv-wrap-'));
+  try {
+    const checkout = path.join(dir, 'checkout with spaces');
+    const wrapper = path.join(checkout, 'examples', 'lovart-lv.example.sh');
+    const agent = path.join(checkout, 'skills', 'imagegen-swarm', 'scripts', 'lovart_agent.py');
+    const envFile = path.join(dir, 'env');
+    await mkdir(path.dirname(wrapper), { recursive: true });
+    await mkdir(path.dirname(agent), { recursive: true });
+    await writeFile(wrapper, await readFile(exampleWrapper), { mode: 0o755 });
+    await writeFile(agent, 'import sys\nprint("fixture client:", sys.argv[1])\n');
+    await writeFile(envFile, 'LOVART_ACCESS_KEY=ak_test\nLOVART_SECRET_KEY=sk_test\n', { mode: 0o600 });
+
+    const result = await run(wrapper, ['chat'], { LOVART_ENV: envFile, LOVART_AGENT_SKILL: '' }, dir);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'fixture client: chat');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 await checkAsync('lovart wrapper refuses group-readable credentials', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'lv-wrap-'));
   try {

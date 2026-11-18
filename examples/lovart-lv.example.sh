@@ -2,7 +2,7 @@
 # Optional Lovart wrapper. lovart.mjs runs scripts/lovart_agent.py directly.
 # This file reads the three named keys from $HOME/.lovart/env and execs that shipped client.
 # It does not source the file.
-# Set LOVART_AGENT_SKILL if this wrapper is copied out of the skill folder.
+# Set LOVART_AGENT_SKILL if this wrapper is copied outside the checkout.
 #
 # The credentials file should be owner-only (mode 600). The mode check uses GNU stat (-c)
 # and, if that is not available, BSD stat (-f), so the same file works on Linux and macOS.
@@ -52,7 +52,8 @@ read_named LOVART_BASE_URL
 if [ -n "${LOVART_AGENT_SKILL:-}" ]; then
   AGENT=$LOVART_AGENT_SKILL
 else
-  AGENT=$(CDPATH= cd -- "$(dirname "$0")/../scripts" && pwd)/lovart_agent.py
+  REPO=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+  AGENT=$REPO/skills/imagegen-swarm/scripts/lovart_agent.py
 fi
 if [ ! -f "$AGENT" ]; then
   echo "Lovart client not found: $AGENT" >&2

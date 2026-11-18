@@ -112,9 +112,10 @@ so a real API error such as no credits is not replaced by a permissions failure.
 wrapper applies the same rule with `stat -c` on Linux and `stat -f` on macOS, and it also copies
 only those three names. It does not source the file.
 
-An optional wrapper is `examples/lovart-lv.example.sh` in the git repository (it is not part of the installed skill). It runs `scripts/lovart_agent.py`. If you
-copy the wrapper out of this folder, set `LOVART_AGENT_SKILL` to the copy of
-`scripts/lovart_agent.py` inside the skill. Check the key with the shipped client:
+The optional `examples/lovart-lv.example.sh` wrapper in the Git checkout runs
+`skills/imagegen-swarm/scripts/lovart_agent.py`. If you copy it outside the checkout,
+set `LOVART_AGENT_SKILL` to the path of the client in your skill installation.
+Check the key with the shipped client:
 
 ```bash
 python3 scripts/lovart_agent.py query-mode
