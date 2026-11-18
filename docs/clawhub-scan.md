@@ -20,7 +20,7 @@ skillspector scan <bundle-dir> --no-llm --format json -o scan.json
 | AR2 anti-refusal | 1 | 0 |
 | EA2 autonomous decision | 5 | 0 |
 | E5 cloud storage upload | 1 | 0 |
-| TT2 tainted flow | 1 | 1 (see below) |
+| TT2 tainted flow | 1 | 1 (false positive, see below) |
 | AE1 partial referenced artifact | 20 | 30 (more lines name scripts; score impact is capped at 3 per rule) |
 
 ## Why JavaScript files stay "partial"
@@ -62,15 +62,53 @@ Two analyzer details made things worse than they had to be, and both are fixed h
 `safety.mjs` (marker contents passed to `writeFile`) and `series-policy.mjs` (an `Error`
 thrown from an exported helper) stay partial for the same reasons.
 
-## TT2 (Muse profile lock file)
+## TT2 (Muse profile lock file): false positive, expected to remain
 
-`behavioral_taint_tracking.py` is a pure data-flow tracker with no sanitizer model.
-`IMAGE_GEN_MUSE_PROFILE` is validated by `allowed_profile()` in `scripts/muse-image.py`
-(must resolve under `$HOME/.config/imagegen-swarm`, or be the legacy default) and that is
-covered by `tests/reliability_rename_test.py::test_profile_stays_on_the_documented_default`.
-The lock path is still derived from the validated value, so the flow is reported. Clearing
-it would need a write API the tracker does not list (`os.open`, `Path.touch`), which would
-only hide the same write, so it is left as is.
+The finding is the flow `IMAGE_GEN_MUSE_PROFILE` → `PROFILE` → `open(<lock file>, "w")` in
+`skills/imagegen-swarm/scripts/muse-image.py`. It is a false positive: the environment value
+is validated before any path is built from it, and the only write is an empty lock file
+beside the validated profile directory. `behavioral_taint_tracking.py` is a pure data-flow
+tracker with no sanitizer model, so it cannot see the validation and reports the flow anyway.
+
+What the code does (line numbers as of this branch):
+
+1. `default_profile()` (lines 65–75) reads `IMAGE_GEN_MUSE_PROFILE`. If it is set, the value
+   goes through `allowed_profile()`; there is no path that uses it unvalidated. If it is
+   unset, the profile is one of two fixed paths: `$HOME/.config/imagegen-swarm/muse-browser`,
+   or the legacy `$HOME/.config/image-gen/muse-browser` when only that one exists. The result
+   is stored in the module constant `PROFILE` (line 78) when the script starts.
+2. `allowed_profile()` (lines 36–62), with the roots from `profile_roots()` (lines 27–33,
+   all passed through `Path.resolve()`):
+   - expands `~`; a relative value is joined to `$HOME/.config/imagegen-swarm`, not to the
+     working directory;
+   - calls `Path.resolve()`, which collapses `.` and `..` and follows symlinks, so a symlink
+     placed under the allowed directory that points elsewhere is judged by its real target;
+   - accepts the resolved path if it is exactly the legacy default
+     `$HOME/.config/image-gen/muse-browser` (that one directory only, nothing under it);
+   - otherwise requires `relative_to($HOME/.config/imagegen-swarm)` to succeed, and also
+     refuses `$HOME/.config/imagegen-swarm` itself;
+   - on any other value raises `RuntimeError` naming the allowed directories and the refused
+     path. This happens while `PROFILE` is computed at startup, so the script exits non-zero
+     before it launches a browser, creates a directory or opens a file.
+3. `browser()` (lines 100–113) refuses a missing profile unless the user ran `--login`
+   (which creates it with `mkdir`), refuses a profile that is not a directory, and then opens
+   `PROFILE.parent / f"{PROFILE.name}.lock"` in mode `"w"` only to hold an `fcntl.flock`
+   (lines 113–114) so two browsers never share one profile. Nothing is written into the
+   file. Because `PROFILE` is already resolved, the lock lands in the resolved parent: under
+   `$HOME/.config/imagegen-swarm`, or `$HOME/.config/image-gen/muse-browser.lock` for the
+   legacy default.
+
+Test coverage: `tests/reliability_rename_test.py::test_profile_stays_on_the_documented_default`
+checks that the default, the legacy default and a sibling under
+`$HOME/.config/imagegen-swarm` are accepted and that `/tmp/not-a-muse-profile` raises
+`RuntimeError`. The symlink case, relative values and the refusal of the
+`imagegen-swarm` directory itself follow from the code above but have no dedicated test.
+
+The code is deliberately not changed to make the finding go away. Switching the write to an
+API the tracker does not watch (`os.open`, `Path.touch`) or routing the value through a
+helper it cannot follow would produce exactly the same lock file and would only hide the
+flow from the scanner. The validation is the real control, so this finding is expected to
+stay in every future scan.
 
 ## reference_missing
 
