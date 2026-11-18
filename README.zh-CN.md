@@ -12,6 +12,20 @@
   <a href="README.md">English</a>
 </p>
 
+**用你已有的 Codex、即梦、Grok、Gemini 和 Muse 账号，让六家引擎并行批量生成图片和视频（Lovart 用官方 AK/SK）。**
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="imagegen-swarm 画的 12 张图拼成的网格，每张都标着是哪家引擎画的：gemini、jimeng（即梦）、codex、grok、lovart 或 muse" width="520" />
+</p>
+
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
+
+50 张图 2.3 分钟，比单引擎快 11 倍（只算生成时间，见[保留率](#保留率)）。
+
+## 活是怎么分的
+
 <p align="center">
   <img src="docs/efficiency.png" alt="50 张图的生成时间 2.3 分钟，比单个引擎快 11 倍，8GB 内存的 M1 MacBook Pro 上实测。不含筛图和风格重做" width="100%" />
 </p>
@@ -19,30 +33,6 @@
 <p align="center">
   <em>这是一次实测的生成时间。2.3 分钟和 11 倍都算到文件写完为止。筛图和按风格重做不在这段时间里。见<a href="#保留率">保留率</a>。</em>
 </p>
-
-**大多数引擎不需要图片 API 密钥。**
-
-用你现有的 Codex 和即梦账号，就能在 Claude Code 里出图。
-
-即梦也能生成视频。
-Grok、Gemini、Muse 用各自的账号登录。
-Lovart 用官方 AK/SK，凭据保存在本机。
-
-这是一个 Claude Code 和 Codex 技能。
-它把一批图同时交给这六家。
-哪家空着，就接下一张。
-上面图里的分钟数只算生成时间。
-某家额度用完，别家接过它的活。
-
-**1.4.0 新增：[系列图模式](#系列图模式)的一致性检查换代。** 默认不再只比调色板，改用只依赖 Pillow 的结构分；也可以自己装一个本地 CLIP 模型。两种都在 4,947 对标注过的真实图片上测过。
-
-**1.3.0 新增：[系列图模式](#系列图模式)。** 同一角色、同一品牌或一套封面，每家引擎共用一段风格说明。
-
-**1.3.1 新增：系列图模式提醒。** 只提示，不会自动开启，生成行为不变。
-
-**1.3.3 修复：Muse 待确认请求默认拒绝。** 不再按说明文字中的关键词放行。只有能完整解析、且只把一张图保存到本轮精确路径的请求才符合权限范围。目前没有真实卡片样本能验证操作与路径的结构，因此遇到待确认卡片会停止任务，不自动点击。见 [Muse 审批说明](skills/imagegen-swarm/references/muse.md)。
-
-## 活是怎么分的
 
 每家引擎同时开几条通道，每条通道做完一张就接队列里的下一张；某家额度用完，别家接着做。下图就是上面那张结果卡对应的那一批 50 张的真实记录：中途 Gemini、Lovart 额度用完，50 张照样全部交付。
 
@@ -83,32 +73,27 @@ Lovart 用官方 AK/SK，凭据保存在本机。
 npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 ```
 
-这条命令用 npx skills CLI 安装技能，适用于 Claude Code、Codex 和其他 agent。
+这条命令用 npx skills CLI 安装技能，适用于 Claude Code、Codex 和其他 agent。想用插件方式装，就改用下面两段之一。
 
-<details>
-<summary>Claude Code plugin</summary>
+### Claude Code 插件
 
-Claude Code：
+在 Claude Code 里输入下面两行，从本仓库的插件市场安装：
 
-```bash
-claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
+```text
+/plugin marketplace add Ekko237/imagegen-swarm
+/plugin install imagegen-swarm@imagegen-swarm
 ```
 
-</details>
+### Codex 插件
 
-<details>
-<summary>Codex plugin</summary>
-
-Codex：
+在终端里运行下面两行，从同一个仓库安装 Codex 插件：
 
 ```bash
 codex plugin marketplace add Ekko237/imagegen-swarm
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
 
-</details>
-
-这两段命令安装的是技能本身。你仍需要 Node.js 18+，以及装了 Pillow 的 Python 3（`python3 -m pip install pillow`）。macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。
+以上任一种方式安装的都是技能本身。你仍需要 Node.js 18+，以及装了 Pillow 的 Python 3（`python3 -m pip install pillow`）。macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。
 
 验证：让你的 agent 画一片蓝底上的柠檬切片。你应该得到一张新的 PNG，这次运行会记下是哪家出的。
 
@@ -234,14 +219,6 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --serie
 
 单独的 `elapsed_seconds` 只是生成时间。上面那 50 张没有测出来的保留率。
 
-## 样例输出
-
-各家引擎画的样例图。
-
-<p align="center">
-  <img src="docs/showcase.webp" alt="imagegen-swarm 画的图，每张标着是哪家引擎画的" width="100%" />
-</p>
-
 ## 常见问题
 
 **要六家都登录吗？**
@@ -288,16 +265,47 @@ node tests/series-consistency.test.mjs        # 结构分、CLIP 回退，真实
 <summary>文件</summary>
 
 ```
-├─ skills/imagegen-swarm/   技能本体：SKILL.md、SETUP.md、scripts、references
-├─ docs/                    README 配图，以及系列一致性验证报告
-├─ tests/                   可靠性和系列模式测试；tests/evals/ 放评测脚本、用例和系列一致性验证；tests/fixtures/ 放少量有许可的小图
-├─ examples/                示例任务文件和 Lovart 包装脚本
-├─ AGENTS.md                交给 agent 时的入口
-├─ CHANGELOG.md             版本说明
-├─ .claude-plugin/          Claude Code 插件清单（skills: ./skills/imagegen-swarm）
-├─ .codex-plugin/           Codex 插件清单（skills: ./skills/）
-├─ .agents/                 Codex 市场清单
-└─ .github/                 CI 和 bug 报告模板
+imagegen-swarm/
+├─ .agents/
+│  └─ plugins/
+│     └─ marketplace.json      Codex 市场清单
+├─ .claude-plugin/
+│  ├─ marketplace.json         Claude Code 市场清单
+│  └─ plugin.json              Claude Code 插件清单（skills: ./skills/imagegen-swarm）
+├─ .codex-plugin/
+│  └─ plugin.json              Codex 插件清单（skills: ./skills/）
+├─ .github/                    CI、frontmatter 检查、issue 和 PR 模板
+├─ .gitignore
+├─ AGENTS.md                   交给 agent 时的入口
+├─ CHANGELOG.md                版本说明（英文）
+├─ CODE_OF_CONDUCT.md
+├─ CONTRIBUTING.md
+├─ LICENSE                     MIT 许可
+├─ NOTICE                      上游 MIT 声明
+├─ README.md                   英文说明
+├─ README.zh-CN.md             本文件
+├─ docs/
+│  ├─ clawhub-scan.md          怎么复现 ClawHub 扫描（英文）
+│  ├─ efficiency.png           50 张图的速度结果卡
+│  ├─ series-consistency-validation.md   系列一致性验证报告（英文）
+│  ├─ showcase.webp            样例图，每张标着是哪家引擎画的
+│  └─ timeline.png             50 张那一批的通道时间线
+├─ examples/                   示例任务文件和 Lovart 包装脚本
+├─ skills/
+│  └─ imagegen-swarm/          技能本体
+│     ├─ .clawhubignore        ClawHub 发布时跳过的文件
+│     ├─ SKILL.md              agent 遵循的说明
+│     ├─ SETUP.md              各引擎的安装、登录和凭据路径
+│     ├─ skill-card.md         技能简介卡
+│     ├─ references/           Codex、Lovart、Muse 的说明
+│     └─ scripts/              各引擎脚本、批量调度、图片工具
+└─ tests/
+   ├─ evals/                   评测脚本、固定用例、系列一致性验证
+   ├─ fixtures/                少量有许可的小测试图
+   ├─ reliability.test.mjs
+   ├─ reliability_rename_test.py
+   ├─ series-consistency.test.mjs
+   └─ series.test.mjs
 ```
 
 </details>
@@ -307,3 +315,5 @@ node tests/series-consistency.test.mjs        # 结构分、CLIP 回退，真实
 MIT，见 [LICENSE](LICENSE)。Codex 的指令模板参考了 `baoyu-image-gen`，上游的 MIT 声明见 [NOTICE](NOTICE)。
 
 用过了？开一个 issue，告诉我哪里坏了，或者你做出了什么。
+
+如果它帮你省了一点时间，点个 ⭐ 能让更多人找到它。欢迎提 issue 和 PR，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
