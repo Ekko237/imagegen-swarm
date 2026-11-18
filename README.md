@@ -286,7 +286,7 @@ python3 tests/reliability_rename_test.py      # Muse rename and fail-closed appr
 
 ```
 ├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references
-├─ docs/                    README images and the series-consistency validation report
+├─ docs/                    README images, the series-consistency validation report, and clawhub-scan.md (ClawHub scan results)
 ├─ tests/                   reliability and series tests; tests/evals/ has the eval runner, spec and series-consistency validation; tests/fixtures/ has small licensed images
 ├─ examples/                example job files and the Lovart wrapper script
 ├─ AGENTS.md                entry point for an agent handed this repo

@@ -12,9 +12,10 @@ const NOT_INSTALLED = /not[_\s-]?installed|找不到\s*lv|\b(?:agy|codex(?:\s+CL
 const RATE_LIMIT = /\b429\b|rate[\s-]?limit|too many requests|RESOURCE_EXHAUSTED/i;
 
 export function failureText(report) {
-  const detail = report?.reason ?? report?.error ?? "unknown error";
-  if (report?.error_kind && !String(detail).includes(String(report.error_kind))) return (detail) + " (" + (report.error_kind) + ")";
-  return String(detail);
+  const reported = report?.reason ?? report?.error;
+  const detail = reported == null ? "unknown error" : String(reported);
+  if (report?.error_kind && !detail.includes(String(report.error_kind))) return detail + " (" + report.error_kind + ")";
+  return detail;
 }
 
 // 'down' 立刻停用；'rate_limit' 计入连续限流；'retry' 只是这一张失败。

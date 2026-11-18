@@ -1072,6 +1072,51 @@ await checkAsync('lovart client still starts from the split entry', async () => 
   assert.match(r.stdout, /query-mode/);
 });
 
+check('failureText keeps its fallback and error_kind wording', () => {
+  assert.equal(failureText({}), 'unknown error');
+  assert.equal(failureText(undefined), 'unknown error');
+  assert.equal(failureText({ error_kind: 'timeout' }), 'unknown error (timeout)');
+  assert.equal(failureText({ reason: null, error: 'boom', error_kind: 'x' }), 'boom (x)');
+  assert.equal(failureText({ reason: 'timed out (timeout)', error_kind: 'timeout' }), 'timed out (timeout)');
+  assert.equal(failureText({ reason: 429 }), '429');
+  assert.equal(failureText({ reason: '', error: 'ignored' }), '');
+});
+
+await checkAsync('lovart upload sends only the named file to /v1/openapi/file/upload', async () => {
+  const { createServer } = await import('node:http');
+  const dir = await mkdtemp(path.join(tmpdir(), 'igs-lovart-upload-'));
+  const file = path.join(dir, 'ref.png');
+  await writeFile(file, 'reference-bytes');
+  const seen = [];
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, key: req.headers['x-access-key'], body: Buffer.concat(chunks).toString('latin1') });
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ code: 0, data: { url: 'https://cdn.example/ref.png' } }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = 'http://127.0.0.1:' + server.address().port;
+    const r = await run(process.env.PYTHON ?? 'python3', [path.join(here, 'lovart_agent.py'), 'upload', '--file', file],
+      { HOME: dir, LOVART_BASE_URL: base, LOVART_ACCESS_KEY: 'ak-fixture', LOVART_SECRET_KEY: 'sk-fixture' });
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { url: 'https://cdn.example/ref.png' });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].method, 'POST');
+    assert.equal(seen[0].url, '/v1/openapi/file/upload');
+    assert.equal(seen[0].key, 'ak-fixture');
+    assert.match(seen[0].body, /filename="ref\.png"/);
+    assert.match(seen[0].body, /reference-bytes/);
+    assert.doesNotMatch(seen[0].body, /sk-fixture/);
+  } finally {
+    server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 if (failed) {
   console.error((failed) + " test(s) failed");
   process.exit(1);

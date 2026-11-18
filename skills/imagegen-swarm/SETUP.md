@@ -50,8 +50,8 @@ not approved by the script. Extra operations, paths or arguments, commands, read
 are refused; permission is never inferred from descriptive text.
 
 No live Muse approval card has been captured, so no operation/path layout is verified. In a
-live test on 2026-11-17, three Muse generations completed and no approval card appeared, so
-ordinary Muse jobs run without any approval step. If a card ever does appear, the script cannot
+live test on 2026-11-17, three Muse generations completed and Muse never showed an approval card,
+so ordinary Muse jobs never reach one. If a card ever does appear, the script cannot
 recognize it, so it leaves the card alone and stops the job with an error that says so. Clicking
 a card would need a verified decoder built from a real captured card; do not work around this by matching keywords. See [references/muse.md](references/muse.md).
 
