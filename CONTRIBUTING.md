@@ -68,4 +68,5 @@ The second command selects a subset instead of running all tasks. Inspect the ou
 - Work on a descriptively named branch and open a focused PR against `main`.
 - Explain the problem and resulting behavior, link a related issue when available, and report the checks you ran. Include reproduction steps for fixes and tests for changed behavior.
 - Update the relevant English and Chinese docs when behavior or setup changes. Preserve the skill folder name and plugin paths checked by CI; keep repository tests and examples outside the published skill folder.
+- If you change folder structure, update the README tree in the same PR.
 - For release changes, follow [CHANGELOG.md](CHANGELOG.md)'s `version - YYYY-MM-DD` headings and keep version fields in `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/marketplace.json` aligned. Ordinary contributions need no speculative version bump.
