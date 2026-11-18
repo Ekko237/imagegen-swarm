@@ -12,6 +12,20 @@
   <a href="README.zh-CN.md">中文说明</a>
 </p>
 
+**Run batch image and video generation across six engines in parallel, using the Codex, Jimeng, Grok, Gemini and Muse accounts you already have (Lovart uses its official AK/SK).**
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="A grid of 12 images drawn by imagegen-swarm, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart or muse" width="520" />
+</p>
+
+```bash
+npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+```
+
+50 images in 2.3 minutes, 11× faster than one engine alone (generation time only; see [Keep rate](#keep-rate)).
+
+## How the work is shared
+
 <p align="center">
   <img src="docs/efficiency.png" alt="50 images in 2.3 minutes of generation time only, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
 </p>
@@ -19,23 +33,6 @@
 <p align="center">
   <em>Generation time only, from one test run. The 2.3 minutes and the 11× line end when the files are written. Screening and style redos sit outside that clock. See <a href="#keep-rate">Keep rate</a>.</em>
 </p>
-
-**A Claude Code and Codex skill that runs batch image and video generation across six engines in parallel.** No image API key needed for most engines—use the Codex, Jimeng, Grok, Gemini, and Muse accounts you already have.
-
-* **Codex, Jimeng, Grok, Gemini, Muse**: use your existing account logins. (Jimeng also generates videos.)
-* **Lovart**: uses its official AK/SK, stored on your machine.
-
-Give `imagegen-swarm` a list of jobs and it feeds all six engines at once. Free lanes pull the next image from a shared queue. The minutes in the chart are generation time only. When one engine hits its quota limit, the remaining engines pick up its work.
-
-**New in 1.4.0: a better [series-mode](#series-mode) consistency check.** The old palette score is replaced by a Pillow-only structure score by default, with an optional local CLIP model you can install yourself. Both were measured on 4,947 labeled real-image pairs.
-
-**New in 1.3.0: [series mode](#series-mode).** For the same character, the same brand, or a cover set, every engine shares one style guide.
-
-**New in 1.3.1: an informational series-mode hint.** It never turns series mode on by itself; generation behavior is unchanged.
-
-**Fixed in 1.3.3: fail-closed Muse approvals.** Free-text cards no longer grant permission. Only a verified single image-save operation for the exact output path may be approved. No live approval card has been captured (none appeared in a live test on 2026-11-17); if one does appear, the Muse job stops with an error and nothing is clicked. See [Muse approval details](skills/imagegen-swarm/references/muse.md).
-
-## How the work is shared
 
 Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
 
@@ -76,32 +73,27 @@ You only need one engine logged in. Every engine you add makes generation faster
 npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 ```
 
-That installs the skill with the npx skills CLI and works across Claude Code, Codex and other agents.
+That installs the skill with the npx skills CLI and works across Claude Code, Codex and other agents. Prefer a plugin? Use one of the two blocks below instead.
 
-<details>
-<summary>Claude Code plugin</summary>
+### Claude Code plugin
 
-Claude Code:
+Run these inside Claude Code to install it as a plugin from this repo's marketplace:
 
-```bash
-claude plugin install imagegen-swarm --marketplace Ekko237/imagegen-swarm
+```text
+/plugin marketplace add Ekko237/imagegen-swarm
+/plugin install imagegen-swarm@imagegen-swarm
 ```
 
-</details>
+### Codex plugin
 
-<details>
-<summary>Codex plugin</summary>
-
-Codex:
+Run these in your shell to install it as a Codex plugin from the same repo:
 
 ```bash
 codex plugin marketplace add Ekko237/imagegen-swarm
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
 
-</details>
-
-These commands install the skill. You still need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK.
+Any of these installs the skill. You still need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK.
 
 Verify: ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run log will record which engine made it.
 
@@ -229,14 +221,6 @@ To measure a style keep rate without series mode:
 
 You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
 
-## Sample output
-
-Sample images drawn by the engines.
-
-<p align="center">
-  <img src="docs/showcase.webp" alt="Images drawn by imagegen-swarm, each labeled with the engine that made it" width="100%" />
-</p>
-
 ## Common questions
 
 **Do I need every engine logged in?**
@@ -285,16 +269,47 @@ python3 tests/reliability_rename_test.py      # Muse rename and fail-closed appr
 <summary>Layout</summary>
 
 ```
-├─ skills/imagegen-swarm/   the skill: SKILL.md, SETUP.md, scripts, references
-├─ docs/                    README images, the series-consistency validation report, and clawhub-scan.md (ClawHub scan results)
-├─ tests/                   reliability and series tests; tests/evals/ has the eval runner, spec and series-consistency validation; tests/fixtures/ has small licensed images
-├─ examples/                example job files and the Lovart wrapper script
-├─ AGENTS.md                entry point for an agent handed this repo
-├─ CHANGELOG.md             release notes
-├─ .claude-plugin/          Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
-├─ .codex-plugin/           Codex plugin manifest (skills: ./skills/)
-├─ .agents/                 Codex marketplace manifest
-└─ .github/                 CI and bug report template
+imagegen-swarm/
+├─ .agents/
+│  └─ plugins/
+│     └─ marketplace.json      Codex marketplace manifest
+├─ .claude-plugin/
+│  ├─ marketplace.json         Claude Code marketplace manifest
+│  └─ plugin.json              Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
+├─ .codex-plugin/
+│  └─ plugin.json              Codex plugin manifest (skills: ./skills/)
+├─ .github/                    CI workflow, frontmatter check, issue and PR templates
+├─ .gitignore
+├─ AGENTS.md                   entry point for an agent handed this repo
+├─ CHANGELOG.md                release notes
+├─ CODE_OF_CONDUCT.md
+├─ CONTRIBUTING.md
+├─ LICENSE                     MIT
+├─ NOTICE                      upstream MIT attribution
+├─ README.md                   this file
+├─ README.zh-CN.md             Chinese README
+├─ docs/
+│  ├─ clawhub-scan.md          how to reproduce the ClawHub scan
+│  ├─ efficiency.png           the 50-image speed chart
+│  ├─ series-consistency-validation.md   series-consistency validation report
+│  ├─ showcase.webp            sample images, each labeled with its engine
+│  └─ timeline.png             lane timeline of the 50-image batch
+├─ examples/                   example job files and the Lovart wrapper script
+├─ skills/
+│  └─ imagegen-swarm/          the skill itself
+│     ├─ .clawhubignore        files ClawHub skips when publishing
+│     ├─ SKILL.md              instructions the agent follows
+│     ├─ SETUP.md              engine setup, logins and credential paths
+│     ├─ skill-card.md         short skill card
+│     ├─ references/           Codex, Lovart and Muse notes
+│     └─ scripts/              engine scripts, batch runner, image tools
+└─ tests/
+   ├─ evals/                   eval runner, fixed tasks, series-consistency validation
+   ├─ fixtures/                small licensed test images
+   ├─ reliability.test.mjs
+   ├─ reliability_rename_test.py
+   ├─ series-consistency.test.mjs
+   └─ series.test.mjs
 ```
 
 </details>
