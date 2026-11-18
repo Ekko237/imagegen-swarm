@@ -50,10 +50,9 @@ are refused; permission is never inferred from descriptive text.
 
 No live Muse approval card has been captured, so no operation/path layout is verified. In a
 live test on 2026-11-17, three Muse generations completed and no approval card appeared, so
-ordinary Muse jobs run without any approval step. If a card ever does appear, the script does
-not recognize it: the job stops with an error saying the shape was not recognized and was not
-clicked, and nothing is clicked. Clicking a card would need a verified decoder built from a real
-captured card; do not work around this by matching keywords. See [references/muse.md](references/muse.md).
+ordinary Muse jobs run without any approval step. If a card ever does appear, the script cannot
+recognize it, so it leaves the card alone and stops the job with an error that says so. Clicking
+a card would need a verified decoder built from a real captured card; do not work around this by matching keywords. See [references/muse.md](references/muse.md).
 
 ## Jimeng binary
 

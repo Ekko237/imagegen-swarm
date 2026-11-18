@@ -385,6 +385,137 @@ def test_profile_stays_on_the_documented_default():
         raise AssertionError("a profile outside the documented directories was accepted")
 
 
+class FakeImage:
+    """Stands in for PIL: open() reads the downloaded bytes, save() writes them to --out."""
+    width, height = 4, 4
+
+    def __init__(self, path):
+        self.data = Path(path).read_bytes()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def save(self, target, _format):
+        Path(target).write_bytes(self.data)
+
+
+def run_main(argv, wait_done=None, delete=None):
+    """Run muse-image.py main() with every browser step faked. Returns (exit code, stdout JSON, deletes)."""
+    deletes = []
+
+    @muse.contextmanager
+    def fake_browser(**_kwargs):
+        yield object()
+
+    def fake_wait_done(_page, _since, _deadline, _approved, _cancel, remote):
+        return [{"role": "assistant", "text": f"产出文件：{remote}"}]
+
+    def fake_download(_page, _remote, work):
+        saved = Path(work) / "download.png"
+        saved.write_bytes(b"fake png bytes")
+        return saved
+
+    def fake_delete(page, chat):
+        deletes.append(chat)
+        if delete:
+            delete(page, chat)
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = 0
+    with patch.object(muse, "browser", fake_browser), \
+         patch.object(muse, "send", return_value=(CHAT, 0)), \
+         patch.object(muse, "rename_or_continue", return_value=True), \
+         patch.object(muse, "open_url", return_value=None), \
+         patch.object(muse, "wait_done", wait_done or fake_wait_done), \
+         patch.object(muse, "download", fake_download), \
+         patch.object(muse, "fingerprint", return_value="fp"), \
+         patch.object(muse, "delete", fake_delete), \
+         patch.object(muse, "Image", types.SimpleNamespace(open=FakeImage), create=True), \
+         patch.object(sys, "argv", ["muse-image.py", *argv]), \
+         patch.object(sys, "stdout", stdout), redirect_stderr(stderr):
+        try:
+            muse.main()
+        except SystemExit as exit_:
+            code = exit_.code
+    lines = stdout.getvalue().strip().splitlines()
+    assert len(lines) == 1, stdout.getvalue()
+    return code, json.loads(lines[0]), deletes, stderr.getvalue()
+
+
+def test_cleanup_failure_after_saved_png_still_succeeds():
+    def row_missing(_page, chat):
+        raise RuntimeError(f"当前行不是侧聊天 {chat}，不动它")
+
+    with tempfile.TemporaryDirectory(prefix="muse-cleanup-") as directory:
+        out = Path(directory) / "out.png"
+        code, result, deletes, stderr = run_main(["--prompt", "a castle", "--out", str(out)], delete=row_missing)
+        assert code == 0
+        assert result["status"] == "ok"
+        assert result["path"] == str(muse.canonical_output_path(out, home=Path.home()))
+        assert out.read_bytes() == b"fake png bytes"
+        assert result["bytes"] == len(b"fake png bytes")
+        assert deletes == [CHAT]
+        assert len(result["warnings"]) == 1
+        assert "当前行不是侧聊天" in result["warnings"][0]
+        assert "side chat cleanup failed" in stderr
+
+
+def test_clean_success_has_no_warnings_key():
+    with tempfile.TemporaryDirectory(prefix="muse-cleanup-") as directory:
+        out = Path(directory) / "out.png"
+        code, result, deletes, _stderr = run_main(["--prompt", "a castle", "--out", str(out)])
+        assert code == 0
+        assert result["status"] == "ok"
+        assert "warnings" not in result
+        assert deletes == [CHAT]
+
+
+def test_generation_failure_still_exits_nonzero():
+    def no_image(*_args):
+        raise RuntimeError("Muse 没交出图")
+
+    def row_missing(_page, chat):
+        raise RuntimeError(f"当前行不是侧聊天 {chat}，不动它")
+
+    for delete in (None, row_missing):
+        with tempfile.TemporaryDirectory(prefix="muse-cleanup-") as directory:
+            out = Path(directory) / "out.png"
+            code, result, deletes, _stderr = run_main(["--prompt", "a castle", "--out", str(out)],
+                                                      wait_done=no_image, delete=delete)
+            assert code == 1
+            assert result["status"] == "error"
+            assert "Muse 没交出图" in result["reason"]
+            assert deletes == [CHAT]
+            assert not out.exists()
+
+
+def test_relative_out_resolves_against_cwd_not_home():
+    with tempfile.TemporaryDirectory(prefix="muse-cwd-") as cwd, \
+         tempfile.TemporaryDirectory(prefix="muse-home-") as home:
+        previous = Path.cwd()
+        try:
+            muse.os.chdir(cwd)
+            with patch.dict(muse.os.environ, {"HOME": home}):
+                prepared = muse.prepare_local_output("renders/out.png")
+                assert prepared == Path(cwd).resolve() / "renders" / "out.png"
+                assert prepared.parent.is_dir()
+                assert not (Path(home) / "renders").exists()
+                # "~" still means the local home.
+                assert muse.prepare_local_output("~/pics/out.png") == Path(home).resolve() / "pics" / "out.png"
+                code, result, _deletes, _stderr = run_main(["--prompt", "a castle", "--out", "sub/x.png"])
+                assert code == 0
+                assert result["path"] == str(Path(cwd).resolve() / "sub" / "x.png")
+                assert (Path(cwd) / "sub" / "x.png").is_file()
+                assert not (Path(home) / "sub").exists()
+        finally:
+            muse.os.chdir(previous)
+    # Approval paths keep resolving relative to the cloud home.
+    assert muse.canonical_output_path("workspace/a.png") == muse.CLOUD_HOME / "workspace" / "a.png"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in list(globals().items()) if name.startswith("test_") and callable(fn)]
     for test in tests:

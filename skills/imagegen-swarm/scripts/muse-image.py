@@ -432,12 +432,13 @@ def approvals(page):
     return page.evaluate(APPROVALS)
 
 
-def canonical_output_path(path, home=CLOUD_HOME):
+def canonical_output_path(path, home=CLOUD_HOME, base=None):
     """One spelling for an output path: ~ expansion, . and .., then realpath of existing parents.
 
     The file itself may not exist yet. Symlinks in directories that already exist are resolved,
     and the missing tail is appended unchanged. "~" uses `home` (the cloud home for an approval,
-    the local home for --out).
+    the local home for --out). A relative path is joined to `base`, or to `home` when `base` is
+    None (an approval path; --out passes the current working directory).
     """
     text = str(path).strip().strip("'\"")
     home = Path(home)
@@ -449,7 +450,7 @@ def canonical_output_path(path, home=CLOUD_HOME):
         text = str(CLOUD_HOME / text[len("~hatch"):].lstrip("/"))
     normalized = os.path.normpath(text)
     if not os.path.isabs(normalized):
-        normalized = os.path.normpath(str(home / normalized))
+        normalized = os.path.normpath(str(Path(base if base is not None else home) / normalized))
     current = Path(normalized)
     missing = []
     while current != current.parent and not current.exists():
@@ -465,8 +466,11 @@ def canonical_output_path(path, home=CLOUD_HOME):
 
 
 def prepare_local_output(out):
-    """Create the local output's parent before Muse is asked to do anything, and return its real path."""
-    path = canonical_output_path(out, home=Path.home())
+    """Create the local output's parent before Muse is asked to do anything, and return its real path.
+
+    A relative --out is resolved against the current working directory, like the other engine scripts.
+    """
+    path = canonical_output_path(out, home=Path.home(), base=Path.cwd())
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -600,10 +604,19 @@ def generate(args):
                 except Exception as cleanup:
                     raise RuntimeError(f"{error}；另外：{cleanup}") from error
                 raise
+            # The PNG is already saved. A failed side-chat cleanup is a warning, not a lost result.
+            warnings = []
             if chat:
-                delete(page, chat)
-    return {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
-            "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
+                try:
+                    delete(page, chat)
+                except Exception as cleanup:
+                    warnings.append(f"side chat cleanup failed: {cleanup}")
+                    print(f"muse: side chat cleanup failed ({cleanup}); image already saved", file=sys.stderr)
+    result = {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
+              "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def main():

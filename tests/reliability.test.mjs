@@ -436,6 +436,37 @@ process.stdin.on('end', async () => {
   });
 }
 
+await checkAsync('codex relative --out resolves against the working directory, not HOME', async () => {
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'codex-cwd-')));
+  try {
+    const cwd = path.join(dir, 'work');
+    const home = path.join(dir, 'home');
+    const codexHome = path.join(home, '.codex');
+    const expected = path.join(cwd, 'renders', 'out.png');
+    const fresh = path.join(dir, 'fresh.png');
+    const codex = path.join(dir, 'fake-codex');
+    await mkdir(path.join(codexHome, 'generated_images'), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(fresh, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC', 'base64'));
+    await writeFile(codex, `#!${process.execPath}
+const { copyFile } = require('node:fs/promises');
+process.stdin.resume();
+process.stdin.on('end', async () => {
+  await copyFile(${JSON.stringify(fresh)}, ${JSON.stringify(expected)});
+  process.exit(0);
+});
+`);
+    await chmod(codex, 0o755);
+    const result = await run(process.execPath, [path.join(here, 'codex-image.mjs'),
+      '--prompt', 'test', '--out', path.join('renders', 'out.png'), '--codex', codex, '--retries', '0', '--json'],
+    { HOME: home, CODEX_HOME: codexHome }, cwd);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout.trim()).path, expected);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 await checkAsync('lovart wrapper accepts mode 600 on Linux and still surfaces no credits', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'lv-wrap-'));
   try {

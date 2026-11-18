@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.3.3
+version: 1.3.4
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -304,16 +304,20 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
   not rename a row it cannot prove is this side chat. It deletes a side chat only when this run
   recorded that chat's id, on success and on failure. If the id was never recorded, it does not
-  delete any chat. Before Muse is started, batch creates the output directory and uses its real
-  path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
+  delete any chat. If deleting the side chat fails after the PNG is saved, the job still succeeds
+  (exit 0) and the success JSON gains a `warnings` list; the key is absent when there is no warning.
+  Generation failures still exit 1. Before Muse is started, batch creates the output directory and uses its real
+  path, and `muse-image.py` creates that file's parent again. A relative `--out` is resolved against
+  the current working directory, like the other engine scripts (before 1.3.4 Muse resolved it
+  against `$HOME`); `~` still means the local home. Muse is told to write the PNG at one
   exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
   the policy permits only "Allow once" for exactly one decoded image-save operation with exactly
   one path equal to this run's output file. `~` is read as `/home/hatch`, `.` and `..` are removed,
   and existing symlinks are resolved before comparison. Directory creation, extra operations or
   paths, commands, reads, network access, and unknown arguments are refused. Free-text descriptions
   never grant permission. No live approval card has been captured, so no operation/path layout is
-  verified. In a live test on 2026-11-17 no approval card appeared. If one does, the job stops
-  with a RuntimeError saying the shape was not recognized and was not clicked; nothing is clicked.
+  verified. In a live test on 2026-11-17 no approval card appeared. If one does, the script leaves
+  it unclicked and stops the job with a RuntimeError saying the card's shape was not recognized.
   Jobs without approval cards continue.
   See [references/muse.md](references/muse.md) for the evidence and decoder requirements.
   Ask the user before approving a stopped request. `IMAGE_GEN_MUSE_PROFILE` must resolve
