@@ -304,7 +304,9 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   fails or times out, the script logs one warning, closes any dialog, and keeps generating. It does
   not rename a row it cannot prove is this side chat. It deletes a side chat only when this run
   recorded that chat's id, on success and on failure. If the id was never recorded, it does not
-  delete any chat. Before Muse is started, batch creates the output directory and uses its real
+  delete any chat. If deleting the side chat fails after the PNG is saved, the job still succeeds
+  (exit 0) and the success JSON gains a `warnings` list; the key is absent when there is no warning.
+  Generation failures still exit 1. Before Muse is started, batch creates the output directory and uses its real
   path, and `muse-image.py` creates that file's parent again. Muse is told to write the PNG at one
   exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
   the policy permits only "Allow once" for exactly one decoded image-save operation with exactly

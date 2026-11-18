@@ -600,10 +600,19 @@ def generate(args):
                 except Exception as cleanup:
                     raise RuntimeError(f"{error}；另外：{cleanup}") from error
                 raise
+            # The PNG is already saved. A failed side-chat cleanup is a warning, not a lost result.
+            warnings = []
             if chat:
-                delete(page, chat)
-    return {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
-            "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
+                try:
+                    delete(page, chat)
+                except Exception as cleanup:
+                    warnings.append(f"side chat cleanup failed: {cleanup}")
+                    print(f"muse: side chat cleanup failed ({cleanup}); image already saved", file=sys.stderr)
+    result = {"status": "ok", "path": str(out), "engine": "muse", "source_path": remote, "width": width, "height": height,
+              "aspect": args.aspect, "approved": approved, "bytes": out.stat().st_size, "elapsed_seconds": round(time.monotonic() - start)}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def main():
