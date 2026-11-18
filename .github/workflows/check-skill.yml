@@ -29,4 +29,6 @@ jobs:
           # reliability.test.mjs also launches batch.mjs and gemini-image.mjs through symlinks
           node tests/reliability.test.mjs
           node tests/series.test.mjs
+          # Pillow only: the optional CLIP backend is tested through its fallback
+          node tests/series-consistency.test.mjs
           python3 tests/reliability_rename_test.py

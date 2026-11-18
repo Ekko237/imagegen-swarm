@@ -1,0 +1,216 @@
+{
+ "note": "Curated identity groups for the series-consistency validation. Files are Wikimedia Commons titles; fetch.py downloads 512px thumbnails and license metadata.",
+ "groups": [
+  {
+   "id": "pepper",
+   "kind": "character",
+   "family": "peppercarrot",
+   "files": [
+    "File:2014-10-31 pepper-more-anime net.jpg",
+    "File:2017-03-05 pepper-s-model-sheet by-David-Revoy.jpg",
+    "File:2018-11-22 vertical-cover-book-three by-David-Revoy.jpg",
+    "File:David Revoy - Pepper&Carrot - October Ink Artworks 2017 (week 1) - Long.jpg",
+    "File:David Revoy - Pepper&Carrot - October Ink Artworks 2017 (week 1) - Swift.jpg",
+    "File:David Revoy - Pepper&Carrot - October Ink Artworks 2017 (week 2) - Shattered.jpg"
+   ]
+  },
+  {
+   "id": "carrot",
+   "kind": "character",
+   "family": "peppercarrot",
+   "files": [
+    "File:2015-01-12 carrot-greeting-card.jpg",
+    "File:2018-01-01 Pepper Carrot Happy-New-Year by-David-Revoy.jpg",
+    "File:2023-08-26 Carrot latte art by Reissue Cafe in Tokyo.jpg",
+    "File:Carrot from Pepper&Carrot.jpg"
+   ]
+  },
+  {
+   "id": "saffron",
+   "kind": "character",
+   "family": "peppercarrot",
+   "files": [
+    "File:Crooked Colors.jpg",
+    "File:Pepper&Carrot Saffron.jpg",
+    "File:Saffron from Pepper&Carrot.jpg"
+   ]
+  },
+  {
+   "id": "coriander",
+   "kind": "character",
+   "family": "peppercarrot",
+   "files": [
+    "File:Bhoren colourisation of David Revoy - Pepper&Carrot - October Ink Artworks 2017 (week 2) - Gigantic.jpg",
+    "File:Coriander RPG costume.webp",
+    "File:Pepper&Carrot Coriander.jpg"
+   ]
+  },
+  {
+   "id": "shichimi",
+   "kind": "character",
+   "family": "peppercarrot",
+   "files": [
+    "File:2015-02-17 shichimi-concept-art by-David-Revoy.jpg",
+    "File:David Revoy - Pepper&Carrot - October Ink Artworks 2017 (week 1) - Shy.jpg",
+    "File:Pepper&Carrot Shichimi.jpg",
+    "File:Shichimi RPG costume.webp"
+   ]
+  },
+  {
+   "id": "sintel",
+   "kind": "character",
+   "family": "sintel",
+   "files": [
+    "File:Blender 2.5 alpha 0-splash.jpg",
+    "File:Blender 2.54 beta-splash.jpg",
+    "File:Character Sintel-portrait-old.png",
+    "File:Durian - Sintel-wallpaper-sintel.jpg",
+    "File:Showing me what I've become.png",
+    "File:Sintel Cover Durian Project.jpg",
+    "File:Sintel and Scales 2010 Christmas card by David Revoy.jpg",
+    "File:Sintel screenshot.png"
+   ]
+  },
+  {
+   "id": "emo",
+   "kind": "character",
+   "family": "elephantsdream",
+   "files": [
+    "File:Elephants Dream f11621.png",
+    "File:Elephants Dream s2 emo.jpg",
+    "File:Elephants Dream s8 emo.jpg",
+    "File:Elephants Dream s8 emocu.jpg"
+   ]
+  },
+  {
+   "id": "proog",
+   "kind": "character",
+   "family": "elephantsdream",
+   "files": [
+    "File:Elephants Dream - Emo and Proog.png",
+    "File:Elephants Dream s1 proog.jpg",
+    "File:Elephants Dream s5 both cropped.jpg",
+    "File:Elephants Dream s5 proog.jpg",
+    "File:Elephants Dream s8 emotease.jpg",
+    "File:Elephants Dream s8 proog.jpg"
+   ]
+  },
+  {
+   "id": "tux",
+   "kind": "mascot",
+   "family": "tux",
+   "files": [
+    "File:03-March Reading for life.svg",
+    "File:Card back 12.svg",
+    "File:Cirpack LINUX tux 2.png",
+    "File:Crystal Project Linuxconf.png",
+    "File:Debiantux08.png",
+    "File:Debiantux09.re.png",
+    "File:FlisoltuxDF.png",
+    "File:Frt.jpg"
+   ]
+  },
+  {
+   "id": "wilber",
+   "kind": "mascot",
+   "family": "wilber",
+   "files": [
+    "File:Gimp logo.jpg",
+    "File:The GIMP icon - gnome.svg",
+    "File:The GIMP icon - v3.0 (macOS).svg",
+    "File:The GIMP icon - v3.0 (with shadow).svg",
+    "File:Wilber (gimp).jpg"
+   ]
+  },
+  {
+   "id": "firefox",
+   "kind": "logo",
+   "family": "firefox",
+   "files": [
+    "File:Antu firefox-developer-edition.svg",
+    "File:Antu firefox.svg",
+    "File:CristalFireFox4 - cropped.jpg",
+    "File:Crystal Project Firefox alt.png",
+    "File:Firefox Reality Logo.png",
+    "File:Firefox Lite logo, 2019.svg",
+    "File:Firefox Developer Edition logo, 2019.svg",
+    "File:Firefox Nightly logo, 2019.svg"
+   ]
+  },
+  {
+   "id": "wikipedia",
+   "kind": "logo",
+   "family": "wikipedia",
+   "files": [
+    "File:Belgorod Logo Wikipedia.png",
+    "File:Flyerdesign 22102022 051607.jpg",
+    "File:Earthathon.jpg",
+    "File:Bolas navideñas wikipedia.jpg",
+    "File:Electric Wikipedia.png",
+    "File:Wikipedia logo 3d gold.png",
+    "File:Wikipedia red logo.png",
+    "File:WikiProject Autism logo, July 2014.png"
+   ]
+  },
+  {
+   "id": "eiffel",
+   "kind": "landmark",
+   "family": "eiffel",
+   "files": [
+    "File:1005 Eiffel tower night illumination by Pierre Bideau in Paris Photo by Giles Laurent.jpg",
+    "File:Detail structure Tour Eiffel.jpg",
+    "File:Details of Eiffel Tower structure, south pillar.jpg",
+    "File:Eiffel Tower 2 - Paris.jpg",
+    "File:Eiffel Tower Keychain.jpg",
+    "File:Eiffel Tower Paris June 2010.jpg",
+    "File:Eiffel Tower from Champ-de-Mars, 7 August 2017.jpg",
+    "File:Eiffel Tower in 2022 01.jpg"
+   ]
+  },
+  {
+   "id": "goldengate",
+   "kind": "landmark",
+   "family": "goldengate",
+   "files": [
+    "File:GGB Marin County line.jpg",
+    "File:Golden Gate Bridge and San Francisco at sunset.jpg",
+    "File:Golden Gate Bridge as seen from Battery East.jpg",
+    "File:Golden Gate Bridge at sunset 1.jpg",
+    "File:Golden Gate Bridge, North view.jpg",
+    "File:Golden Gate Bridge, San Francisco 04.jpg",
+    "File:Golden Gate Bridge, San Francisco 13.jpg",
+    "File:Golden Gate Bridge, north tower detail.jpg",
+    "File:Golden Gate bridge 3.jpg"
+   ]
+  },
+  {
+   "id": "tokyotower",
+   "kind": "landmark",
+   "family": "tokyotower",
+   "files": [
+    "File:\"Inner Trip\" @ Tokyo Tower (9157891472).jpg",
+    "File:Cherry blossoms and Tokyo tower.jpg",
+    "File:Tokyo 20100813145754 (43437616642).jpg",
+    "File:Tokyo Tower (11697017193).jpg",
+    "File:Tokyo Tower (11697147324).jpg",
+    "File:Tokyo Tower (11697149454).jpg",
+    "File:Tokyo Tower (53080608742).jpg",
+    "File:Dramatic View of Illuminated Tokyo Tower.jpg"
+   ]
+  },
+  {
+   "id": "towerbridge",
+   "kind": "landmark",
+   "family": "towerbridge",
+   "files": [
+    "File:London MMB J8 Tower Bridge.jpg",
+    "File:London MMB K5 Tower Bridge.jpg",
+    "File:London MMB Y6 Tower Bridge.jpg",
+    "File:London MMB »2J1 Tower Bridge.jpg",
+    "File:London November 2013-13a.jpg",
+    "File:London November 2013-14.jpg",
+    "File:London November 2013-27b.jpg"
+   ]
+  }
+ ]
+}

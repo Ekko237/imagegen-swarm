@@ -9,6 +9,8 @@ out/
 !docs/*.png
 !docs/*.jpg
 !docs/*.webp
+# Small licensed test fixtures (attribution in tests/fixtures/series-consistency/README.md)
+!tests/fixtures/series-consistency/*.jpg
 .codex-img-*/
 .gemini-image-*/
 .grok-image-*/

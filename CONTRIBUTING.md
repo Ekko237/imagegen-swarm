@@ -51,6 +51,7 @@ python3 -m py_compile skills/imagegen-swarm/scripts/*.py
 ```bash
 node tests/reliability.test.mjs
 node tests/series.test.mjs
+node tests/series-consistency.test.mjs
 python3 tests/reliability_rename_test.py
 ```
 
@@ -62,6 +63,8 @@ node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
 ```
 
 The second command selects a subset instead of running all tasks. Inspect the outputs against the eval rubric. Remove generated Python bytecode caches before submitting; keep generated media and local credentials out of PRs.
+
+The series-consistency validation (not CI; it downloads about 100 Wikimedia Commons thumbnails and can use optional local ONNX models) is described in [docs/series-consistency-validation.md](docs/series-consistency-validation.md).
 
 ## Branches and pull requests
 
