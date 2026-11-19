@@ -19,7 +19,7 @@
 </p>
 
 ```bash
-npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
 ```
 
 50 张图 2.3 分钟，比单引擎快 11 倍（只算生成时间，见[保留率](#保留率)）。
@@ -70,17 +70,19 @@ npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 ## 安装
 
 ```bash
-npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
 ```
 
 这条命令用 npx skills CLI 安装技能，适用于 Claude Code、Codex 和其他 agent。想用插件方式装，就改用下面两段之一。
+
+这里的安装命令都固定在 v1.4.1 版本，装下来的就是这个标签里的代码，装之前可以先到 https://github.com/Ekko237/imagegen-swarm/tree/v1.4.1 看一遍。以后想升级，先到 https://github.com/Ekko237/imagegen-swarm/releases 看新版本的发布说明，再把命令里的 v1.4.1 换成新的标签。
 
 ### Claude Code 插件
 
 在 Claude Code 里输入下面两行，从本仓库的插件市场安装：
 
 ```text
-/plugin marketplace add Ekko237/imagegen-swarm
+/plugin marketplace add Ekko237/imagegen-swarm#v1.4.1
 /plugin install imagegen-swarm@imagegen-swarm
 ```
 
@@ -89,7 +91,7 @@ npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 在终端里运行下面两行，从同一个仓库安装 Codex 插件：
 
 ```bash
-codex plugin marketplace add Ekko237/imagegen-swarm
+codex plugin marketplace add Ekko237/imagegen-swarm --ref v1.4.1
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
 
@@ -105,18 +107,18 @@ codex plugin add imagegen-swarm@imagegen-swarm
 把 `skills/imagegen-swarm` 复制或软链接到 agent 的技能目录。文件夹必须命名为 `imagegen-swarm`。
 
 ```bash
-git clone https://github.com/Ekko237/imagegen-swarm.git
+git clone --branch v1.4.1 --depth 1 https://github.com/Ekko237/imagegen-swarm.git
 mkdir -p ~/.claude/skills ~/.codex/skills
 ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.claude/skills/imagegen-swarm
 ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
 ```
 
-不想用软链接，就把 `ln -s` 换成 `cp -a`。软链接安装后，在克隆出来的仓库里 `git pull` 即更新。复制安装要再复制一次。以前装在 `image-gen` 下的，改名为 `imagegen-swarm`。
+不想用软链接，就把 `ln -s` 换成 `cp -a`。软链接安装要更新，就删掉原来的克隆，按同样的方法克隆新的标签。复制安装要再复制一次。以前装在 `image-gen` 下的，改名为 `imagegen-swarm`。
 
 ### npx skills
 
 ```bash
-npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
 ```
 
 ### Windows
