@@ -4,7 +4,7 @@ Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use [issues](https://gi
 
 ## Set up and run
 
-Use Node.js 18+ and Python 3; CI uses Node.js 22 on Ubuntu. There is no package manifest or install.sh. Install Pillow (README, Install; also used in CI):
+Use Node.js 18+ and Python 3; CI uses Node.js 22 on Ubuntu. There is no package manifest or install.sh. Install Pillow ([docs/install.md](docs/install.md); also used in CI):
 
 ```bash
 python3 -m pip install pillow
@@ -16,15 +16,15 @@ To install the skill in your agent, the README provides:
 npx skills add https://github.com/Ekko237/imagegen-swarm -a claude-code -a codex
 ```
 
-For development against this checkout, copy or symlink `skills/imagegen-swarm` into your agent's skills directory as described in [README.md](README.md#install). At least one engine must be logged in for generation; follow [SETUP.md](skills/imagegen-swarm/SETUP.md). Keep logins and keys outside the repository.
+For development against this checkout, copy or symlink `skills/imagegen-swarm` into your agent's skills directory as described in [docs/install.md](docs/install.md). At least one engine must be logged in for generation; follow [SETUP.md](skills/imagegen-swarm/SETUP.md). Keep logins and keys outside the repository.
 
-From the repository root, check engine readiness (README, Install):
+From the repository root, check engine readiness ([docs/install.md](docs/install.md)):
 
 ```bash
 node skills/imagegen-swarm/scripts/check.mjs
 ```
 
-Create `jobs.json` using the [README usage example](README.md#usage), then run its batch command from the repository root:
+Create `jobs.json` using the [usage example](docs/usage.md), then run its batch command from the repository root:
 
 ```bash
 node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
@@ -55,7 +55,7 @@ node tests/series-consistency.test.mjs
 python3 tests/reliability_rename_test.py
 ```
 
-Optional live evals from the README's Tests section (not CI; require configured engines and may consume credits or paid API budget):
+Optional live evals from [docs/tests.md](docs/tests.md) (not CI; require configured engines and may consume credits or paid API budget):
 
 ```bash
 node tests/evals/run.mjs out/
@@ -71,5 +71,5 @@ The series-consistency validation (not CI; it downloads about 100 Wikimedia Comm
 - Work on a descriptively named branch and open a focused PR against `main`.
 - Explain the problem and resulting behavior, link a related issue when available, and report the checks you ran. Include reproduction steps for fixes and tests for changed behavior.
 - Update the relevant English and Chinese docs when behavior or setup changes. Preserve the skill folder name and plugin paths checked by CI; keep repository tests and examples outside the published skill folder.
-- If you change folder structure, update the README tree in the same PR.
+- If you change folder structure, update the tree in [docs/layout.md](docs/layout.md) and [docs/layout.zh-CN.md](docs/layout.zh-CN.md) in the same PR.
 - For release changes, follow [CHANGELOG.md](CHANGELOG.md)'s `version - YYYY-MM-DD` headings and keep version fields in `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/marketplace.json` aligned. Ordinary contributions need no speculative version bump.

@@ -7,7 +7,7 @@ body:
     id: guidance
     attributes:
       value: |
-        Check the README's common questions and existing issues first. Remove keys (including AK/SK), tokens, cookies, account IDs, and personal information from all text and logs.
+        Check the FAQ (docs/faq.md) and existing issues first. Remove keys (including AK/SK), tokens, cookies, account IDs, and personal information from all text and logs.
   - type: input
     id: skill_version
     attributes:
