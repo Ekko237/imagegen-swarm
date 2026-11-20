@@ -5,6 +5,13 @@
 Got image-gen quota across several AI tools that goes unused? imagegen-swarm is a Claude Code / Codex skill that puts them all on one queue and fails over when one runs out.
 
 <p align="center">
+  <img src="docs/demo.gif" alt="Terminal demo: gemini alone, six lanes in parallel, six images finish together" width="720" />
+</p>
+<p align="center">
+  <em>Real CLI run on one engine (gemini) with <code>--lanes gemini=6</code>: six jobs start together and all finish. Not a multi-engine demo.</em>
+</p>
+
+<p align="center">
   <img src="docs/showcase.webp" alt="A grid of 12 images drawn by imagegen-swarm, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart or muse" width="520" />
 </p>
 

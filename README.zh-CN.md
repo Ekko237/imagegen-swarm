@@ -5,6 +5,13 @@
 手上有好几家 AI 出图工具，额度每月用不完就作废？imagegen-swarm 是一个 Claude Code / Codex 技能，把它们排进同一个队列，一次批量出图，哪家额度用完就换下一家。
 
 <p align="center">
+  <img src="docs/demo.gif" alt="终端演示：只用 gemini 一家引擎，开 6 条通道同时画 6 张图" width="720" />
+</p>
+<p align="center">
+  <em>真实终端录制：只用 gemini，参数 <code>--lanes gemini=6</code>，6 张图同时开画并一起出齐。不是多引擎演示。</em>
+</p>
+
+<p align="center">
   <img src="docs/showcase.webp" alt="imagegen-swarm 画的 12 张图拼成的网格，每张都标着是哪家引擎画的：gemini、jimeng（即梦）、codex、grok、lovart 或 muse" width="520" />
 </p>
 
