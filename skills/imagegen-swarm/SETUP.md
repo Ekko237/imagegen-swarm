@@ -3,7 +3,7 @@
 This file is in the skill folder. For a plain-folder install, copy or symlink this folder to the
 Claude Code skills directory, or the Codex skills directory, and name the folder `imagegen-swarm`.
 An older copy installed as `image-gen` can be moved to `imagegen-swarm`. Plugin commands are in the
-repository README. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`; series mode uses it for its local consistency score)
+repository file `docs/install.md`. You need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`; series mode uses it for its local consistency score)
 on macOS, Windows or Linux; on Windows the scripts call `python`, or set `PYTHON`. The Muse engine
 also needs Playwright. The skill contains no accounts or keys. Each engine keeps its login in its
 own folder, so never bundle those folders when you share the skill. Set up only the engines you

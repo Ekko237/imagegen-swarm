@@ -1,18 +1,8 @@
 # imagegen-swarm
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="MIT license" /></a>
-  &nbsp;
-  <a href="https://github.com/Ekko237/imagegen-swarm/releases/latest"><img src="https://img.shields.io/github/v/release/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="Latest release" /></a>
-  &nbsp;
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-CHANGELOG.md-24292f?style=flat" alt="Changelog" /></a>
-</p>
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-<p align="center">
-  <a href="README.zh-CN.md">中文说明</a>
-</p>
-
-**Run batch image and video generation across six engines in parallel, using the Codex, Jimeng, Grok, Gemini and Muse accounts you already have (Lovart uses its official AK/SK).**
+Got image-gen quota across several AI tools that goes unused? imagegen-swarm is a Claude Code / Codex skill that puts them all on one queue and fails over when one runs out.
 
 <p align="center">
   <img src="docs/showcase.webp" alt="A grid of 12 images drawn by imagegen-swarm, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart or muse" width="520" />
@@ -22,36 +12,30 @@
 npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
 ```
 
-50 images in 2.3 minutes, 11× faster than one engine alone (generation time only; see [Keep rate](#keep-rate)).
+If it helps, a ★ Star helps others find it.
 
-## How the work is shared
+## What problem it solves
 
-<p align="center">
-  <img src="docs/efficiency.png" alt="50 images in 2.3 minutes of generation time only, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
-</p>
+Image quotas are scattered across tools, and the weekly or monthly allowance mostly sits unused until it expires. A single engine is slow, and the batch stops when that engine runs out partway through. Switching by hand to the next tool and picking the unfinished jobs back up is tedious.
 
-<p align="center">
-  <em>Generation time only, from one test run. The 2.3 minutes and the 11× line end when the files are written. Screening and style redos sit outside that clock. See <a href="#keep-rate">Keep rate</a>.</em>
-</p>
+## Who it's for
 
-Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
+Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`), on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK. You only need one engine logged in. Every engine you add makes generation faster. Credential paths are in [SETUP.md](skills/imagegen-swarm/SETUP.md).
 
-The 2.3 minutes on that chart is generation time only: the wall clock until the last of those 50 files was written. Screening the images, and regenerating any that miss a character or a brand, sit outside that clock. The 11× line compares that 2.3 minutes with 26.7 minutes for one engine, using Gemini, the fastest engine in that run, at its measured 32 seconds per image. Both sides are generation time only. The run's log is not in this repository, so the chart has no keep rate. [Keep rate](#keep-rate) explains how to count one.
+## Quick use
 
-It is one test run, so your numbers will differ: your speed will depend on your account quotas. In this run, Lovart and Muse were on free plans, and Gemini and Lovart ran out midway. With more quota, all engines stay active to the end and generation usually finishes faster.
+Ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run log will record which engine made it. The same job from the repository root:
 
-![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
+```bash
+cat > jobs.json <<'EOF'
+[
+  {"id": "lemon", "prompt": "a lemon slice on a blue background, flat illustration", "aspect": "1:1"}
+]
+EOF
+node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
+```
 
-## Why
-
-Image tools give you weekly or monthly quotas that mostly sit unused. Running one engine at a time is slow and stops at its limit. `imagegen-swarm` puts all your accounts on a single queue:
-
-* **Parallel**: every engine runs multiple lanes at once; any free lane grabs the next compatible job.
-* **Quota-aware**: if an engine reports exhausted quota, a missing login, or a missing install, it shuts down and returns its job to the queue. Plain rate limits trigger a backoff and only shut the engine down after three in a row.
-* **Correct**: checks every file to confirm it is new from this run, re-runs wrong aspect ratios on another engine, and output is always real PNG.
-* **Fits your machine**: lane counts scale with RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more. Want to keep memory free for other apps? Cap memory usage with `IMAGE_GEN_MEMORY_GB=4`, or set exact lane counts with `--lanes gemini=2,codex=2`.
-* **Resumable**: rerun the same job list and already-finished images are skipped.
-* **Optional paid last resort**: add a pay-per-image API line (OpenAI or Gemini API). It only takes images no subscription engine can take, so the queue keeps going when every quota runs dry at once, and it stops at the per-batch and per-month budgets you set.
+The file is `out/lemon.png`. In the installed skill folder, drop the `skills/imagegen-swarm/` prefix. Job fields, the longer example, and calling one engine: [Usage](docs/usage.md).
 
 ## Engines
 
@@ -65,265 +49,47 @@ Image tools give you weekly or monthly quotas that mostly sit unused. Running on
 | **lovart** | images, reference images | the official Lovart CLI (your AK/SK) |
 | **api** (optional, paid) | images, edits | OpenAI Images API or Gemini API with your own key, pay per image |
 
-You only need one engine logged in. Every engine you add makes generation faster.
+## Tested results
 
-## Install
+50 images in 2.3 minutes, 11× faster than one engine alone (generation time only; see [Keep rate](docs/keep-rate.md)).
 
-```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
-```
+<p align="center">
+  <img src="docs/efficiency.png" alt="50 images in 2.3 minutes of generation time only, 11 times faster than one engine alone, on an 8 GB M1 MacBook Pro" width="100%" />
+</p>
 
-That installs the skill with the npx skills CLI and works across Claude Code, Codex and other agents. Prefer a plugin? Use one of the two blocks below instead.
+<p align="center">
+  <em>Generation time only, from one test run. The 2.3 minutes and the 11× line end when the files are written. Screening and style redos sit outside that clock. See <a href="docs/keep-rate.md">Keep rate</a>.</em>
+</p>
 
-Every install command here is pinned to release v1.4.1, so you get exactly the code in that tag, which you can review first at https://github.com/Ekko237/imagegen-swarm/tree/v1.4.1. To upgrade, read the new release's notes at https://github.com/Ekko237/imagegen-swarm/releases and replace v1.4.1 with its tag.
+Each engine opens multiple lanes. Every free lane grabs the next job in the queue. If an engine runs out of quota, the others take over. In the 50-image test run above, Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50 images.
 
-### Claude Code plugin
+The 2.3 minutes on that chart is generation time only: the wall clock until the last of those 50 files was written. Screening the images, and regenerating any that miss a character or a brand, sit outside that clock. The 11× line compares that 2.3 minutes with 26.7 minutes for one engine, using Gemini, the fastest engine in that run, at its measured 32 seconds per image. Both sides are generation time only. The run's log is not in this repository, so the chart has no keep rate. [Keep rate](docs/keep-rate.md) explains how to count one.
 
-Run these inside Claude Code to install it as a plugin from this repo's marketplace:
+It is one test run, so your numbers will differ: your speed will depend on your account quotas. In this run, Lovart and Muse were on free plans, and Gemini and Lovart ran out midway. With more quota, all engines stay active to the end and generation usually finishes faster.
 
-```text
-/plugin marketplace add Ekko237/imagegen-swarm#v1.4.1
-/plugin install imagegen-swarm@imagegen-swarm
-```
+![Timeline of the 50-image batch: each block is one image, each row is one lane, all rows running at once](docs/timeline.png)
 
-### Codex plugin
+## Community
 
-Run these in your shell to install it as a Codex plugin from the same repo:
+Tried it? Open an issue and tell me what broke or what you made. For a bug, attach `out/batch-results.json` after removing keys (including AK/SK), tokens, cookies, account IDs, and personal information. Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Setup and quota questions: [Common questions](docs/faq.md).
 
-```bash
-codex plugin marketplace add Ekko237/imagegen-swarm --ref v1.4.1
-codex plugin add imagegen-swarm@imagegen-swarm
-```
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="MIT license" /></a>
+  &nbsp;
+  <a href="https://github.com/Ekko237/imagegen-swarm/releases/latest"><img src="https://img.shields.io/github/v/release/Ekko237/imagegen-swarm?style=flat&color=24292f" alt="Latest release" /></a>
+  &nbsp;
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-CHANGELOG.md-24292f?style=flat" alt="Changelog" /></a>
+</p>
 
-Any of these installs the skill. You still need Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`) on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK.
+MIT, see [LICENSE](LICENSE). The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrapper; see [NOTICE](NOTICE) for the upstream MIT attribution.
 
-Verify: ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run log will record which engine made it.
+## More
 
-<details>
-<summary>Folder install, npx, and Windows</summary>
-
-### Folder
-
-Copy or symlink `skills/imagegen-swarm` into your agent skills directory. The folder must be named `imagegen-swarm`.
-
-```bash
-git clone --branch v1.4.1 --depth 1 https://github.com/Ekko237/imagegen-swarm.git
-mkdir -p ~/.claude/skills ~/.codex/skills
-ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.claude/skills/imagegen-swarm
-ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
-```
-
-To copy instead of symlink, replace `ln -s` with `cp -a`. Update a symlink install by deleting the clone and cloning a newer tag the same way, or update a copy by copying the folder again. If you have an older install named `image-gen`, rename it to `imagegen-swarm`.
-
-### npx skills
-
-```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
-```
-
-### Windows
-
-Copy `skills/imagegen-swarm` to `%USERPROFILE%\.claude\skills\imagegen-swarm` or `%USERPROFILE%\.codex\skills\imagegen-swarm`. On Windows, the scripts call `python` (or use the `PYTHON` env var). Install Pillow with `python -m pip install pillow`. The Jimeng binary for Windows is `dreamina.exe`; the pinned checksum is in [SETUP.md](skills/imagegen-swarm/SETUP.md).
-
-Check which engines are ready from the skill folder:
-
-```bash
-node scripts/check.mjs
-```
-
-From a repo clone, run `node skills/imagegen-swarm/scripts/check.mjs`.
-
-</details>
-
-## Usage
-
-Ask your agent for images to trigger the skill automatically, or run a batch directly from the CLI:
-
-```bash
-cat > jobs.json <<'EOF'
-[
-  {"id": "lemon",  "prompt": "a lemon slice on a blue background, flat illustration", "aspect": "1:1"},
-  {"id": "kite",   "prompt": "a red kite in a clear sky, minimal",                    "aspect": "3:4"},
-  {"id": "whale",  "prompt": "a blue whale in the deep ocean, low poly",              "aspect": "16:9"},
-  {"id": "night",  "prompt": "the same lemon slice, but at night", "ref": ["out/lemon.png"]}
-]
-EOF
-node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
-```
-
-Each job requires `id` and `prompt`; `aspect`, `ref`, `video`, and `engine` are optional. Output saves to `out/<id>.png`, progress streams as JSON lines, and `out/batch-results.json` records which engine made each image, how long that attempt took, and the `keep` counts below.
-
-## Series mode
-
-Series mode is off by default and is never enabled automatically. It came from user feedback on X about style consistency across engines. When you mention the same character, brand, mascot, a cover set, or a series, or every task shares the same style reference image, the assistant first asks: “Should this batch share one style? If so I'll turn on series mode.” It enables the mode only after you agree, using your description for `series.style` and the shared reference image(s) for `series.ref`. Without a clear signal, such as 50 font images in different styles, there is no reminder.
-
-The CLI prints one bilingual `series_hint` JSON event to stderr only when `--series` is absent, the jobs file has no `series` key (including a plain array), there are at least 4 jobs, and every job has an identical non-empty reference list. Paths are resolved relative to the jobs file with `path.resolve`; order and duplicate counts must match. Filesystem symlinks are not resolved, empty path strings do not qualify, and prompt similarity is not used. Any explicit `series` value, including `false` or `null`, suppresses the hint. The message suggests adding `--series` if the jobs should share one style.
-
-When emitted, `series_hint: true` appears in the final summary and `out/batch-results.json`; otherwise the field is omitted. The hint is informational only: it never enables series mode, prompts, waits, or changes engines, provider calls or arguments, environment, or exit codes.
-
-After agreement, in the jobs file, beside the job list:
-
-```json
-"series": {"style": "...", "ref": ["style.png"]}
-```
-
-```bash
-node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/ --series --style "..." --style-ref style.png
-```
-
-* One style guide and the style reference images go to every engine.
-* Each image is scored locally against the reference images (or, without them, against the first kept image). An outlier is discarded and put back on the queue, preferring the most consistent engine so far.
-* The summary counts those discards in `keep.style_redos`. `delivery_seconds` is the wall clock until the summary, including that screening and those redos.
-
-What is checked (`series.method` or `--style-method`; scoring never uses the network):
-
-| Method | Needs | Checks | Different subjects kept | Same subjects rejected |
-| --- | --- | --- | ---: | ---: |
-| `auto` (default) | — | `clip` if installed, otherwise `structure` | | |
-| `structure` | Pillow | layout, linework, rendering: 0.4 × SSIM + 0.5 × gradient-orientation grid + 0.1 × palette | 31% | 26% |
-| `clip` | numpy, onnxruntime, an 89 MB CLIP ViT-B/32 model (MIT) you download yourself, [SETUP.md](skills/imagegen-swarm/SETUP.md#series-consistency-optional-clip-score) | the subject, via image embeddings; ~0.5 s and ~230 MB RAM per image | 11% | 10% |
-| `palette-histogram` | Pillow | colors and brightness only (the 1.3.x score) | 6% | 76% |
-
-Rates are at the default threshold 0.72, measured on 4,947 labeled pairs of real artwork, logos and photos ([validation](docs/series-consistency-validation.md)). `structure` and `clip` are calibrated so 0.72 is each one's measured operating point, so existing jobs files keep working. The summary reports the method used, each kept image's `style_score`, `style_raw_score` and `style_components`.
-
-What still can't be guaranteed: no method confirms the same face, character, or logo. `structure` cannot tell two characters drawn in the same style apart, and `clip` is still wrong about one time in ten. A keep rate was not measured on a real multi-engine series. Look at every kept image. All options are in [SKILL.md](skills/imagegen-swarm/SKILL.md#series-mode).
-
-## Keep rate
-
-Count three different things: images an engine returned, images saved as the job output, and images you still want after you look at them.
-
-The 50-image run delivered 50 files. That is the number on the chart. This repository does not include that run's `batch-results.json` or a screening log, so it has no measured keep rate for the run.
-
-After a batch, the last JSON line and `out/batch-results.json` include `keep`, counted from the attempts in that run:
-
-| Field | What it counts |
-| --- | --- |
-| `generated` | Attempts where the engine returned an image file |
-| `kept` | Those files saved as `out/<id>.png` (`.mp4` for video) after the automatic checks |
-| `redone` | Returned files dropped because the aspect ratio was off by more than 3%, then put back on the queue |
-| `duplicates` | Extra files from a tail steal. The first copy to finish is the one in `kept`; the other is dropped |
-| `style_redos` | Returned files dropped because a series-mode style score was below the threshold. This is 0 when series mode is off |
-| `resumed` | Jobs skipped because the output file was already on disk. These sit outside `generated` |
-
-`generated` adds up as `kept` + `redone` + `duplicates` + `style_redos`. An engine error, a timeout, or a quota failure returns no file, so it stays out of `keep`. The job is still retried on another engine, up to `--tries` (default 3). `done` on the same summary is saved jobs plus resumed jobs. `elapsed_seconds` is generation time only. `delivery_seconds` is the wall clock until the summary, and in series mode that includes style screening and style redos.
-
-`keep` counts those automatic checks: the file is new from this run, it is not a copy of a reference image, the aspect ratio is within 3% when the job set one, and, in series mode, the consistency score is at least the threshold. That score does not prove character identity. The fixed tasks in `tests/evals/evals.json` use a 1–5 content rubric, and a pass is 4 or higher. A batch eval writes the same `keep` object onto its result line. The repository stores the rubric and does not store scored runs.
-
-For a same-character, same-brand, or cover series, see [series mode](#series-mode). Still look at every kept file.
-
-To measure a style keep rate without series mode:
-
-1. Run the batch.
-2. Read `keep` for the automatic counts.
-3. Look at every file and count how many you would ship. That count is your usable number.
-4. Delete the files you reject and run the same job list again. Files still on disk are skipped. A new job for an outlier works the same way. Each replacement is a redo.
-5. Add the time you spent screening and regenerating to `elapsed_seconds`. That sum is delivery time. Series mode records the same kind of total as `delivery_seconds`.
-
-`elapsed_seconds` alone is generation time only. The 50-image chart has no measured keep rate.
-
-You can also call a single engine directly: `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`. Full options are in [SKILL.md](skills/imagegen-swarm/SKILL.md). When running from the installed skill folder, drop the `skills/imagegen-swarm/` prefix.
-
-## Common questions
-
-**Do I need every engine logged in?**
-
-No. One is enough, and each engine you add speeds up generation. Set up only the ones you want. Run `node skills/imagegen-swarm/scripts/check.mjs` to see which engines are ready. Any engine without a login shuts down and returns its job to the queue.
-
-**Is my login safe?**
-
-The skill contains no accounts or keys. Each engine stores its login in its own local folder—do not bundle those folders if you share the skill. Put Lovart's AK/SK in `~/.lovart/env` with mode `600`, never in chat or git. All credential paths are listed in [SETUP.md](skills/imagegen-swarm/SETUP.md).
-
-**Will styles stay consistent across models?**
-
-Not by default. Each job carries its own `prompt`, an optional `ref` list, and an optional `aspect`, and a free lane that can take the job runs it, so one batch is often split across models.
-
-For the same character, the same brand, or a cover series, use [series mode](#series-mode).
-
-Jimeng takes up to 10 references, Gemini up to 3, and Grok one. Gemini may rewrite the prompt; its result then has `prompt_verbatim: false`.
-
-**What happens when a quota runs out?**
-
-When an engine reports exhausted quota, no login, or no install, it shuts down and puts its current image back in the queue. A standard rate limit (429) backs off and only shuts the engine down after three consecutive rate-limit failures. Failed images retry on another untried engine, up to `--tries` engines (default 3). If you configured the pay-per-image api line, it takes over from there until its budget is used. If every engine runs out of quota, generate in the ChatGPT, Gemini, or Grok web app in a new tab, download and check the image, then close the tab. An engine error is not an empty quota. If the engine you named fails, the skill reports that error.
-
-**Do I need an API key?**
-
-Not for most engines. Codex and Jimeng use the accounts you already have. Grok, Gemini, and Muse use their own account logins. Only Lovart requires its official AK/SK, stored on your machine. The optional pay-per-image line uses your own OpenAI or Gemini API key; see [SETUP.md](skills/imagegen-swarm/SETUP.md).
-
-**Which agents does this run in?**
-
-Claude Code and Codex.
-
-<details>
-<summary>Tests</summary>
-
-```bash
-node tests/evals/run.mjs out/                         # every fixed task, including a mixed batch
-node tests/evals/run.mjs out/ --only gemini-t2i,batch-mixed
-node tests/reliability.test.mjs               # log parsing, rate limits, steal threshold, Lovart wrapper
-node tests/series.test.mjs                    # series anchor, mock engines, palette score
-node tests/series-consistency.test.mjs        # structure / clip-fallback scores, real and procedural fixtures
-python3 tests/reliability_rename_test.py      # Muse rename and fail-closed approval checks
-```
-
-</details>
-
-<details>
-<summary>Layout</summary>
-
-```
-imagegen-swarm/
-├─ .agents/
-│  └─ plugins/
-│     └─ marketplace.json      Codex marketplace manifest
-├─ .claude-plugin/
-│  ├─ marketplace.json         Claude Code marketplace manifest
-│  └─ plugin.json              Claude Code plugin manifest (skills: ./skills/imagegen-swarm)
-├─ .codex-plugin/
-│  └─ plugin.json              Codex plugin manifest (skills: ./skills/)
-├─ .github/                    CI workflow, frontmatter check, issue and PR templates
-├─ .gitignore
-├─ AGENTS.md                   entry point for an agent handed this repo
-├─ CHANGELOG.md                release notes
-├─ CODE_OF_CONDUCT.md
-├─ CONTRIBUTING.md
-├─ LICENSE                     MIT
-├─ NOTICE                      upstream MIT attribution
-├─ README.md                   this file
-├─ README.zh-CN.md             Chinese README
-├─ docs/
-│  ├─ clawhub-scan.md          how to reproduce the ClawHub scan
-│  ├─ efficiency.png           the 50-image speed chart
-│  ├─ series-consistency-validation.md   series-consistency validation report
-│  ├─ showcase.webp            sample images, each labeled with its engine
-│  └─ timeline.png             lane timeline of the 50-image batch
-├─ examples/                   example job files and the Lovart wrapper script
-├─ skills/
-│  └─ imagegen-swarm/          the skill itself
-│     ├─ .clawhubignore        files ClawHub skips when publishing
-│     ├─ SKILL.md              instructions the agent follows
-│     ├─ SETUP.md              engine setup, logins and credential paths
-│     ├─ skill-card.md         short skill card
-│     ├─ references/           Codex, Lovart and Muse notes
-│     └─ scripts/              engine scripts, batch runner, image tools
-└─ tests/
-   ├─ evals/                   eval runner, fixed tasks, series-consistency validation
-   ├─ fixtures/                small licensed test images
-   ├─ reliability.test.mjs
-   ├─ reliability_rename_test.py
-   ├─ series-consistency.test.mjs
-   └─ series.test.mjs
-```
-
-</details>
-
-## Credits
-
-The Codex instruction template follows the `baoyu-image-gen` codex-imagegen wrapper; see [NOTICE](NOTICE) for the upstream MIT attribution.
-
-## License
-
-MIT, see [LICENSE](LICENSE).
-
-Tried it? Open an issue and tell me what broke or what you made.
-
-If this saved you some time, a ⭐ helps other people find it. Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+- Parallel lanes, quota failover, file checks, memory, resume, and the optional paid API: [Why](docs/how-it-works.md).
+- Plugin, folder, and Windows installs, and the pinned release: [Install](docs/install.md).
+- Job fields, the longer batch, and calling one engine: [Usage](docs/usage.md).
+- Shared style across a series, off unless you agree: [Series mode](docs/series-mode.md).
+- What `keep` counts, and how to measure one yourself: [Keep rate](docs/keep-rate.md).
+- Setup, logins, quotas, and API keys: [Common questions](docs/faq.md).
+- Test commands: [Tests](docs/tests.md).
+- Repository tree: [Layout](docs/layout.md).
