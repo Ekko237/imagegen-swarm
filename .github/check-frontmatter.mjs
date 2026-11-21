@@ -65,6 +65,12 @@ if (found.length !== 1 || found[0] !== path.join("skills", "imagegen-swarm", "SK
 
 const claudePlugin = JSON.parse(readFileSync(path.join(root, ".claude-plugin", "plugin.json"), "utf8"));
 const codexPlugin = JSON.parse(readFileSync(path.join(root, ".codex-plugin", "plugin.json"), "utf8"));
+const claudeMarketplace = JSON.parse(readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"));
+const version = frontmatter.match(/^version:\s*(\S+)$/m)?.[1];
+if (!version || [claudePlugin.version, codexPlugin.version, claudeMarketplace.plugins?.[0]?.version].some(value => value !== version)) {
+  console.error("Skill, plugin and marketplace versions must match");
+  process.exit(1);
+}
 const codexMarketplace = JSON.parse(readFileSync(path.join(root, ".agents", "plugins", "marketplace.json"), "utf8"));
 const codexSource = codexMarketplace.plugins?.[0]?.source;
 if (codexSource !== "./") {
@@ -94,6 +100,8 @@ for (const rel of [
   "scripts/batch-policy.mjs",
   "scripts/series-policy.mjs",
   "scripts/check.mjs",
+  "scripts/readiness.mjs",
+  "scripts/smoke.mjs",
   "references/codex.md",
   "references/lovart.md",
   "SETUP.md",

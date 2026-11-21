@@ -43,17 +43,16 @@ Generation does not create these directories.
 
 ## Muse approvals
 
-The local output parent is created before Muse starts. The approval policy permits only
-"Allow once" for exactly one decoded image-save operation with one path matching this run's
-cloud output after `~`, `.`/`..`, and existing symlink resolution. Creating a cloud directory is
-not approved by the script. Extra operations, paths or arguments, commands, reads and network requests
-are refused; permission is never inferred from descriptive text.
+The local output parent is created before Muse starts. The cloud directory follows the selected
+browser profile. The legacy profile uses `/home/hatch/workspace/image-gen` and other profiles use
+`/home/hatch/workspace/imagegen-swarm`. `IMAGE_GEN_MUSE_REMOTE_DIR` can override it with a directory
+under `/home/hatch/` using only `[A-Za-z0-9_./-]` and no `..`. Create the cloud directory
+first on a new environment or handle the directory approval manually. The script never
+auto-approves directory creation.
 
-No live Muse approval card has been captured, so no operation/path layout is verified. In a
-live test on 2026-11-17, three Muse generations completed and Muse never showed an approval card,
-so ordinary Muse jobs never reach one. If a card ever does appear, the script cannot
-recognize it, so it leaves the card alone and stops the job with an error that says so. Clicking
-a card would need a verified decoder built from a real captured card; do not work around this by matching keywords. See [references/muse.md](references/muse.md).
+Default and `legacy` accept `Allow once` text cards only for the exact output PNG, subject to
+the command and metacharacter checks. `IMAGE_GEN_MUSE_APPROVAL=strict` requires a fully decoded
+single-image save. See [Muse approvals](references/muse.md).
 
 ## Jimeng binary
 
@@ -105,24 +104,28 @@ EOF
 chmod 600 "$HOME/.lovart/env"
 ```
 
-`scripts/lovart.mjs` reads that file as text and checks that its mode is owner-only. It keeps only
-`LOVART_ACCESS_KEY`, `LOVART_SECRET_KEY`, and `LOVART_BASE_URL`. It does not execute the file. A
-mode such as `644` is refused; `600` is accepted. If the mode cannot be read, the client still runs,
-so a real API error such as no credits is not replaced by a permissions failure. The optional
-wrapper applies the same rule with `stat -c` on Linux and `stat -f` on macOS, and it also copies
-only those three names. It does not source the file.
+`scripts/lovart.mjs` reads the file as text. It keeps only `LOVART_ACCESS_KEY`,
+`LOVART_SECRET_KEY`, and `LOVART_BASE_URL`. Group or other write access is refused. Group or other
+read access, such as `644`, produces a warning and suggests `chmod 600`.
+
+### Existing `lv` installations
+
+If you already installed `~/tools/lovart-skill/lv` using the old setup, the skill prefers it.
+An explicit `--lv` path takes priority, followed by `LOVART_LV` and the old default path.
+New installations can use the bundled client and the credentials above. Generation JSON reports
+`auth` as `lv-wrapper` or `shipped-client`.
+
+Run `node scripts/lovart.mjs --query-mode --json` for a free billing check. Generation also
+checks billing. Without `--require-free`, a mode or model that spends credits triggers a
+warning and generation proceeds with credits. Pass `--require-free` to stop unless the account
+is in unlimited mode and the selected model is whitelisted.
+The script never switches the billing mode.
 
 The optional `examples/lovart-lv.example.sh` wrapper in the Git checkout runs
 `skills/imagegen-swarm/scripts/lovart_agent.py`. If you copy it outside the checkout,
 set `LOVART_AGENT_SKILL` to the path of the client in your skill installation.
-Check the key with the shipped client:
-
-```bash
-python3 scripts/lovart_agent.py query-mode
-```
-
-`query-mode` returning JSON means the client and the key work. It does not prove the account has
-credits.
+A successful `query-mode` confirms connectivity and credentials. Check its whitelist before
+relying on free generation.
 
 ## Pay-per-image API line (optional)
 
@@ -221,10 +224,12 @@ curl -L -o "$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx" \
   https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx
 sha256sum "$HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx"
 # expect 583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299
-python3 scripts/imgtool.py backends --verify   # "auto": "clip", and known_model is set
+python3 scripts/imgtool.py backends   # "auto": "clip", and known_model is set
 ```
 
-Set `IMAGE_GEN_CLIP_MODEL` to use a file in another place. To go back to the Pillow score, delete
+Set `IMAGE_GEN_CLIP_MODEL` to use a file in another place. The script checks SHA-256 during
+availability checks and before loading. It rejects hashes outside the validated list unless you
+explicitly set `IMAGE_GEN_CLIP_ALLOW_UNVERIFIED=yes` for a model you trust. To go back to the Pillow score, delete
 the file or pass `--style-method structure`. Measured error rates and the data behind them are in
 the repository at `docs/series-consistency-validation.md`.
 
@@ -237,3 +242,9 @@ and send every image to that provider.
 ```bash
 node scripts/check.mjs
 ```
+
+`check.mjs` reports `READY` only after that engine's latest smoke passed within 24 hours and its
+current login probe succeeds. A successful login probe alone is `LOGGED IN, UNTESTED`. Use
+`node scripts/check.mjs --live --engines <list>` to run generation smoke. Omit engines whose
+billing you have not confirmed. Jimeng and the paid API are skipped by default. Lovart only
+runs by default when the account is unlimited and the default model is on its free whitelist.

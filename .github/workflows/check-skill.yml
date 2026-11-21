@@ -32,3 +32,5 @@ jobs:
           # Pillow only: the optional CLIP backend is tested through its fallback
           node tests/series-consistency.test.mjs
           python3 tests/reliability_rename_test.py
+          python3 tests/clip_hash_test.py
+          node tests/smoke-logic.test.mjs

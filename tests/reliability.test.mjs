@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { extractCodexAgentError, isImageGenUnavailable } from '../skills/imagegen-swarm/scripts/codex-image.mjs';
+import { probeEngine, readinessState } from '../skills/imagegen-swarm/scripts/readiness.mjs';
 import { childEnv } from '../skills/imagegen-swarm/scripts/scoped-env.mjs';
 import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from '../skills/imagegen-swarm/scripts/safety.mjs';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,7 +15,7 @@ import {
 } from '../skills/imagegen-swarm/scripts/batch.mjs';
 import { engineSpec, loadApiConfig, monthSpent, openaiSize } from '../skills/imagegen-swarm/scripts/api-image.mjs';
 import {
-  extractGenerated, parseAgyReply, parseEncodedArg, parseToolArgs, parseTranscript, transcriptFile,
+  extractGenerated, geminiErrorKind, waitForImage, parseAgyReply, parseEncodedArg, parseToolArgs, parseTranscript, transcriptFile,
 } from '../skills/imagegen-swarm/scripts/gemini-image.mjs';
 
 // What a fake PYTHON prints for `imgtool.py backends`: no CLIP, so auto resolves to structure.
@@ -1134,6 +1136,277 @@ await checkAsync('lovart upload sends only the named file to /v1/openapi/file/up
     assert.doesNotMatch(seen[0].body, /sk-fixture/);
   } finally {
     server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+for (const id of ['../x', 'a/b', 'a\\b', '/abs', '.hidden', '', 'x'.repeat(101)]) {
+  await checkAsync('batch rejects job id ' + JSON.stringify(id) + ' before writing', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'swarm-invalid-id-'));
+    try {
+      const jobs = path.join(dir, 'jobs.json');
+      const out = path.join(dir, 'output');
+      await writeFile(jobs, JSON.stringify([{ id: 'cover-1', prompt: 'first' }, { id, prompt: 'invalid' }]));
+      const result = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', jobs, '--out', out],
+        { HOME: dir, IMAGE_GEN_API_CONFIG: path.join(dir, 'absent.json') });
+      assert.notEqual(result.code, 0);
+      assert.match(JSON.parse(result.stdout).reason, /job id may only use/);
+      assert.deepEqual(await readdir(dir), ['jobs.json']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+await checkAsync('batch refuses a planted attempt symlink before generation', async () => {
+  if (process.platform === 'win32') return;
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-attempt-link-'));
+  try {
+    const out = path.join(dir, 'out');
+    const target = path.join(dir, 'target.png');
+    const jobs = path.join(dir, 'jobs.json');
+    const link = path.join(out, '.attempt-cover-codex-0.png');
+    await mkdir(out);
+    await writeFile(target, 'original bytes');
+    await symlink(target, link);
+    await writeFile(jobs, JSON.stringify([{ id: 'cover', prompt: 'fixture' }]));
+    const result = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', jobs,
+      '--out', out, '--engines', 'codex']);
+    assert.equal(result.code, 1);
+    assert.match(result.stdout, /Refusing batch attempt output symlink/);
+    assert.equal(await readFile(target, 'utf8'), 'original bytes');
+    assert.equal(await realpath(link), await realpath(target));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('Gemini waits for a late child transcript after the main turn completes', async () => {
+  const parent = '00000000-0000-0000-0000-000000000001';
+  const child = '00000000-0000-0000-0000-000000000002';
+  const result = { status: 'SUCCESS', conversation_id: parent, response: 'Waiting for the subagent to generate the image.' };
+  const image = { file: '/fake/child.png' };
+  let iteration = 0;
+  const generated = await waitForImage(result, {
+    deadline: Date.now() + 5000,
+    pause: async () => { iteration++; },
+    scan: async id => ({
+      steps: id === parent && iteration >= 1 ? [{ content: JSON.stringify({ conversationId: child }) }] : [],
+      images: id === child && iteration >= 2 ? [image] : [],
+    }),
+  });
+  assert.equal(iteration, 2);
+  assert.deepEqual(generated, [image]);
+});
+
+await checkAsync('Gemini distinguishes explicit quota, hard image failure and a stalled child', async () => {
+  for (const [response, kind] of [
+    ['429 RESOURCE_EXHAUSTED', 'quota_exhausted'],
+    ['Hourly limit reached. Try again later.', 'quota_exhausted'],
+    ['image failed to generate: no image generated in response', 'generation_failed'],
+    ['Waiting for the subagent to generate the image.', 'timeout'],
+  ]) {
+    await assert.rejects(waitForImage({ conversation_id: 'parent' }, {
+      deadline: Date.now(),
+      scan: async () => ({ steps: [{ content: response }], images: [] }),
+    }), { kind });
+  }
+  assert.equal(geminiErrorKind('Try again later'), null);
+});
+
+await checkAsync('batch accepts ASCII and Unicode job ids through resume', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'swarm-valid-id-'));
+  try {
+    const ids = ['cover-1', '中文图1'];
+    const jobs = path.join(dir, 'jobs.json');
+    const out = path.join(dir, 'output');
+    await mkdir(out);
+    await writeFile(jobs, JSON.stringify(ids.map(id => ({ id, prompt: id }))));
+    for (const id of ids) await writeFile(path.join(out, id + '.png'), 'resume fixture');
+    const result = await run(process.execPath, [path.join(here, 'batch.mjs'), '--jobs', jobs, '--out', out, '--engines', 'codex'],
+      { HOME: dir, IMAGE_GEN_API_CONFIG: path.join(dir, 'absent.json') });
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual((await readdir(out)).sort(), ['batch-results.json', 'cover-1.png', '中文图1.png'].sort());
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+check('Codex extracts only the last agent message and recognizes image tool unavailability', () => {
+  const event = text => JSON.stringify({ item: { type: 'agent_message', text } });
+  const reason = 'Image_gen tool is NOT AVAILABLE {account policy}';
+  const output = [event('earlier'), event('```json\n' + JSON.stringify({ status: 'error', reason }) + '\n```'), '{}'].join('\n');
+  assert.equal(extractCodexAgentError(output).reason, reason);
+  assert.equal(extractCodexAgentError(output + '\n' + event('Finished')), null);
+  assert.equal(isImageGenUnavailable(reason), true);
+  assert.equal(isImageGenUnavailable('Sandbox is unavailable'), false);
+});
+
+await checkAsync('Codex CLI emits image_gen_unavailable and preserves the agent reason', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'swarm-codex-reason-'));
+  try {
+    const codex = path.join(dir, 'fake-codex');
+    const reason = 'image_gen tool is unavailable';
+    const event = { item: { type: 'agent_message', text: JSON.stringify({ status: 'error', reason }) } };
+    await writeFile(codex, '#!' + process.execPath + '\nprocess.stdin.resume();\nprocess.stdin.on("end", () => console.log('
+      + JSON.stringify(JSON.stringify(event)) + '));\n', { mode: 0o755 });
+    const result = await run(process.execPath, [path.join(here, 'codex-image.mjs'), '--codex', codex, '--prompt', 'fixture',
+      '--out', path.join(dir, 'result.png'), '--retries', '0', '--json'], { CODEX_HOME: dir });
+    assert.equal(result.code, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.error_kind, 'image_gen_unavailable');
+    assert.ok(report.error.startsWith(reason));
+    assert.doesNotMatch(report.error, /sandbox/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+check('readiness needs both a login and a latest PASS younger than 24 hours', () => {
+  const pass = { result: 'PASS', time: '2026-11-20T12:00:00.000Z' };
+  const now = Date.parse(pass.time);
+  assert.match(readinessState(true, pass, now + 1), /READY ✅.*2026-11-20/);
+  for (const latest of [null, { ...pass, result: 'SKIP' }, { ...pass, result: 'FAIL' }]) {
+    assert.equal(readinessState(true, latest, now), 'LOGGED IN, UNTESTED');
+  }
+  assert.equal(readinessState(true, pass, now + 86400000), 'LOGGED IN, UNTESTED');
+  assert.equal(readinessState(true, pass, now - 1), 'LOGGED IN, UNTESTED');
+  assert.match(readinessState(false, pass, now), /NOT READY/);
+});
+
+await checkAsync('Grok model listing cannot hide a not-authenticated warning', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'swarm-grok-probe-'));
+  try {
+    await writeFile(path.join(dir, 'grok'), '#!' + process.execPath
+      + '\nconsole.log("grok-4.6"); console.error("NOT AUTHENTICATED");\n', { mode: 0o755 });
+    const source = { PATH: dir + path.delimiter + process.env.PATH, IMAGE_GEN_ENGINE_OFF: dir };
+    const result = await probeEngine('grok', { env: childEnv(source) });
+    assert.equal(result.loggedIn, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+for (const [setting, status, modes] of [
+  ['auto', 'ok', ['scoped', 'legacy']],
+  ['scoped', 'error', ['scoped']],
+  ['scoped-success', 'ok', ['scoped']],
+  ['legacy', 'ok', ['legacy']],
+  ['auto-retry-denied', 'error', ['scoped', 'legacy']],
+]) {
+  await checkAsync('Grok uses the intended permission flags in ' + setting, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'swarm-grok-job-'));
+    try {
+      const calls = path.join(dir, 'calls.jsonl');
+      const grok = path.join(dir, 'grok');
+      const session = path.join(dir, '.grok', 'sessions', 'fixture-session');
+      const success = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC';
+      await writeFile(grok, `#!${process.execPath}
+const { appendFileSync, mkdirSync, writeFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const legacy = args.includes('--always-approve');
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+if ((!legacy && ${setting !== 'scoped-success'}) || ${status === 'error'}) {
+  console.error('permission denied');
+  process.exit(1);
+}
+mkdirSync(${JSON.stringify(session)}, { recursive: true });
+writeFileSync(${JSON.stringify(path.join(session, 'image.png'))}, Buffer.from(${JSON.stringify(success)}, 'base64'));
+console.log(JSON.stringify({ sessionId: 'fixture-session', text: '{"status":"ok"}' }));
+`, { mode: 0o755 });
+      const result = await run(process.execPath, [path.join(here, 'grok-image.mjs'), '--prompt', 'fixture',
+        '--out', path.join(dir, 'result.png'), '--json'], {
+        HOME: dir, PATH: dir + path.delimiter + process.env.PATH,
+        IMAGE_GEN_GROK_MODE: setting.split('-')[0],
+      });
+      const reply = JSON.parse(result.stdout);
+      assert.equal(reply.status, status, reply.reason);
+      assert.equal(result.code, status === 'ok' ? 0 : 1);
+      if (status === 'ok') assert.equal(reply.grok_mode, setting === 'scoped-success' ? 'scoped' : 'legacy-always-approve');
+      const log = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      assert.deepEqual(log.map(args => args.includes('--always-approve') ? 'legacy' : 'scoped'), modes);
+      for (const args of log) {
+        assert.deepEqual(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 2), ['--sandbox', 'workspace']);
+        assert.deepEqual(args.slice(-6), ['--deny', 'Bash', '--deny', 'WebFetch', '--deny', 'WebSearch']);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+await checkAsync('Lovart wrapper billing guard rejects fast and unlisted models before upload or chat', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'swarm-lovart-guard-'));
+  try {
+    const calls = path.join(dir, 'calls');
+    const lv = path.join(dir, 'lv');
+    const out = path.join(dir, 'image.png');
+    const args = [path.join(here, 'lovart.mjs'), '--lv', lv, '--out', out, '--prompt', 'fixture',
+      '--aspect', '1:1', '--require-free', '--json'];
+    for (const [mode, aliases, model, generates] of [
+      ['fast', ['generate_image_nano_banana_pro'], 'generate_image_nano_banana_pro', false],
+      ['unlimited', [], 'generate_image_nano_banana_pro', false],
+      ['unlimited', ['generate_image_nano_banana_pro'], 'other_model', false],
+      ['unlimited', ['generate_image_nano_banana_pro'], 'generate_image_nano_banana_pro', true],
+    ]) {
+      await writeFile(calls, '');
+      await writeFile(lv, `#!${process.execPath}
+const { appendFileSync, writeFileSync } = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+if (args[0] === "query-mode") {
+  console.log("billing mode");
+  console.log(JSON.stringify({ mode: ${JSON.stringify(mode)}, detail: { unlimited_list: [{ alias_list: ${JSON.stringify(aliases)} }] } }, null, 2));
+} else if (args[0] === "chat") {
+  const file = path.join(args[args.indexOf("--output-dir") + 1], "fixture.png");
+  writeFileSync(file, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC", "base64"));
+  console.log(JSON.stringify({ generation_succeeded: true, downloaded: [{ type: "image", local_path: file }] }));
+} else {
+  process.exit(2);
+}
+`, { mode: 0o755 });
+      const result = await run(process.execPath, [...args, '--model', model], { LOVART_LV: path.join(dir, 'missing') });
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.auth, 'lv-wrapper');
+      assert.equal(report.billing_mode, mode);
+      assert.equal(result.code, generates ? 0 : 1, result.stderr);
+      const log = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      assert.deepEqual(log.map(args => args[0]), generates ? ['query-mode', 'chat'] : ['query-mode']);
+      if (generates) {
+        assert.equal(report.status, 'ok');
+        assert.equal(log[1][log[1].indexOf('--prompt') + 1], 'fixture square 1:1.');
+      } else {
+        assert.equal(report.error_kind, 'would_spend_credits');
+        assert.match(result.stderr, /本张会扣 Lovart 积分/);
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+await checkAsync('Lovart shipped client warns on 644 credentials and rejects 664', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'swarm-lovart-env-'));
+  try {
+    const envFile = path.join(dir, 'lovart.env');
+    const python = path.join(dir, 'fake-python');
+    await writeFile(envFile, 'LOVART_ACCESS_KEY=fixture\nLOVART_SECRET_KEY=fixture\n', { mode: 0o644 });
+    await chmod(envFile, 0o644);
+    await writeFile(python, '#!' + process.execPath
+      + '\nif (process.argv[3] !== "query-mode") process.exit(2);\nconsole.log(JSON.stringify({mode:"fast"}));\n', { mode: 0o755 });
+    const args = [path.join(here, 'lovart.mjs'), '--query-mode', '--json'];
+    const env = { HOME: dir, LOVART_ENV: envFile, LOVART_LV: '', PYTHON: python };
+    const readable = await run(process.execPath, args, env);
+    assert.equal(readable.code, 0);
+    assert.match(readable.stderr, /chmod 600/);
+    assert.equal(JSON.parse(readable.stdout).auth, 'shipped-client');
+    await chmod(envFile, 0o664);
+    const writable = await run(process.execPath, args, env);
+    assert.equal(writable.code, 1);
+    assert.equal(JSON.parse(writable.stdout).error_kind, 'not_configured');
+    assert.match(JSON.parse(writable.stdout).error, /group\/other writes/);
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

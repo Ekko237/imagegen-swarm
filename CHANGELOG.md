@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.2 - 2026-11-20
+
+- Muse uses the legacy cloud directory with the legacy browser profile and supports a validated directory override. Default and legacy approval accept exact-file Allow once text cards. Strict requires a decoded save. Create the directory first or approve its creation manually. Refused approvals and stalled turns report specific failure kinds.
+- Lovart retains the old wrapper as its first choice, reports auth source and billing mode, and supports `--require-free`. Without that flag, credit-spending modes warn and still generate. The shipped client warns about group/other-readable keys and rejects group/other-writable credentials.
+- Grok starts with scoped tools and can retry once with legacy workspace flags on a tool refusal. Bash, WebFetch and WebSearch stay denied. Codex reports its actual agent error and identifies accounts without `image_gen`.
+- Batch IDs are restricted to safe Unicode names and planted attempt-output symlinks are refused. CLIP verifies model SHA-256 before loading and requires explicit `IMAGE_GEN_CLIP_ALLOW_UNVERIFIED=yes` for other hashes.
+- Gemini waits for late child transcripts within the timeout and reports exhausted quota separately.
+- Smoke prints each engine as it runs and saves a final table after timeout or interruption. It includes a configurable five-minute cap per engine, zero-spend gates for credit and paid routes, and readiness based on the latest fresh smoke PASS. See [the release checklist](docs/release-checklist.md).
+
 ## 1.4.1 - 2026-11-17
 
 - ClawHub display name fix (显示名修正): the 1.4.0 ClawHub listing was published with the display name "Pub"; 1.4.1 republishes it as "imagegen-swarm". No functional change.

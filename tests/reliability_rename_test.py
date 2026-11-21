@@ -318,7 +318,8 @@ class ApprovalPage:
         assert (role, name, exact) == ("button", "Allow once", True)
         return types.SimpleNamespace(first=self)
 
-    def click(self):
+    def click(self, timeout):
+        assert timeout == 3000
         self.clicks += 1
 
     def wait_for_timeout(self, _milliseconds):
@@ -326,7 +327,7 @@ class ApprovalPage:
 
 
 def test_wait_done_refuses_before_any_click():
-    unknown = {"label": "Allow once", "detail": "save " + REMOTE, "request": None}
+    unknown = {"label": "Allow once", "detail": "create directory " + muse.REMOTE_DIR, "request": None}
     mismatch = decoded_save("/tmp/other.png")
     compound = decoded_save(operation="save_image and run_command")
     wrong_label = decoded_save()
@@ -338,6 +339,7 @@ def test_wait_done_refuses_before_any_click():
             try:
                 muse.wait_done(page, 0, float("inf"), approved, None, REMOTE)
             except RuntimeError as error:
+                assert error.kind == "approval_refused"
                 assert "approval shape was not recognized" in str(error)
                 assert "was not clicked" in str(error)
             else:
@@ -410,7 +412,7 @@ def run_main(argv, wait_done=None, delete=None):
     def fake_browser(**_kwargs):
         yield object()
 
-    def fake_wait_done(_page, _since, _deadline, _approved, _cancel, remote):
+    def fake_wait_done(_page, _since, _deadline, _approved, _cancel, remote, _remote_dir):
         return [{"role": "assistant", "text": f"产出文件：{remote}"}]
 
     def fake_download(_page, _remote, work):
@@ -514,6 +516,87 @@ def test_relative_out_resolves_against_cwd_not_home():
             muse.os.chdir(previous)
     # Approval paths keep resolving relative to the cloud home.
     assert muse.canonical_output_path("workspace/a.png") == muse.CLOUD_HOME / "workspace" / "a.png"
+
+
+def test_legacy_approval_is_exact_file_only():
+    clean = {"label": "Allow once", "detail": f"Save {REMOTE}", "request": None}
+    legacy = {"IMAGE_GEN_MUSE_APPROVAL": "legacy"}
+    strict = {"IMAGE_GEN_MUSE_APPROVAL": "strict"}
+    assert muse.approval_allowed(decoded_save(), REMOTE, muse.REMOTE_DIR, strict)
+    assert not muse.approval_allowed(clean, REMOTE, muse.REMOTE_DIR, strict)
+    for env in ({}, legacy):
+        assert muse.approval_allowed(clean, REMOTE, muse.REMOTE_DIR, env)
+        assert muse.approval_allowed({**clean, "detail": f'Write file "{REMOTE}"\nDeny\nAllow once'}, REMOTE, muse.REMOTE_DIR, env)
+        for detail in (f"Write file {muse.REMOTE_DIR}/evil.sh", f"Write file {muse.REMOTE_DIR}/other.png",
+                       f"创建目录 {muse.REMOTE_DIR}", f"创建目录 {REMOTE}", f"bash -c id {REMOTE}",
+                       f"Save {REMOTE} /tmp/other.png", f"Save {REMOTE} ~/relative.png",
+                       f"Save {REMOTE} and elsewhere/other.png", f"Save {REMOTE} and evil.sh"):
+            assert not muse.approval_allowed({**clean, "detail": detail}, REMOTE, muse.REMOTE_DIR, env), detail
+    for suffix in (" /home/hatch/other.png", " /tmp/other.png",
+                   f" {muse.REMOTE_DIR}/..", f" {muse.REMOTE_DIR}/../other.png",
+                   " ~/workspace/other.png", "; rm -rf ~", " $(id)", " && other",
+                   " | other", " `other`", " curl", " wget", " chmod", " sudo", " mkdir"):
+        denied = {**clean, "detail": clean["detail"] + suffix}
+        assert not muse.approval_allowed(denied, REMOTE, muse.REMOTE_DIR, legacy), suffix
+    assert not muse.approval_allowed({**clean, "label": "Always allow"}, REMOTE, muse.REMOTE_DIR, legacy)
+    assert not muse.approval_allowed({**clean, "request": {}}, REMOTE, muse.REMOTE_DIR, legacy)
+
+    page, approved = ApprovalPage(), []
+    replies = [{"role": "assistant", "text": "done"}]
+    with patch.dict(muse.os.environ, legacy), \
+         patch.object(muse, "approvals", side_effect=[[clean], [], []]), \
+         patch.object(muse, "messages", return_value=replies), \
+         patch.object(muse, "busy", return_value=False), patch.object(muse, "IDLE_SECONDS", 0):
+        assert muse.wait_done(page, 0, float("inf"), approved, None, REMOTE, muse.REMOTE_DIR) == replies
+    assert page.clicks == 1
+    assert approved == [clean["detail"]]
+
+
+def test_wait_done_times_out_before_full_job_deadline():
+    page = ApprovalPage()
+    with patch.object(muse, "approvals", return_value=[]), \
+         patch.object(muse, "messages", return_value=[]), \
+         patch.object(muse, "busy", return_value=True), \
+         patch.object(muse.time, "monotonic", side_effect=[10, 86, 86]):
+        try:
+            muse.wait_done(page, 0, 300, [], None, REMOTE)
+        except muse.MuseGenerationError as error:
+            assert error.kind == "approval_card_timeout"
+        else:
+            raise AssertionError("Muse continued waiting without an approvable card")
+    assert page.clicks == 0
+
+
+def test_completed_reply_without_png_reports_no_image():
+    with tempfile.TemporaryDirectory() as directory:
+        out = Path(directory) / "out.png"
+        code, result, deletes, _stderr = run_main(["--prompt", "a castle", "--out", str(out)],
+                                                  wait_done=lambda *_: [{"role": "assistant", "text": "done"}])
+        assert code == 1
+        assert result["error_kind"] == "no_image"
+        assert deletes == [CHAT]
+        assert not out.exists()
+
+
+def test_remote_dir_follows_profile_and_validates_override():
+    with tempfile.TemporaryDirectory(prefix="muse-profile-") as home:
+        with patch.object(Path, "home", return_value=Path(home)):
+            assert muse.resolve_remote_dir(env={}) == muse.REMOTE_SWARM
+            roots = muse.profile_roots()
+            roots["legacy"].mkdir(parents=True)
+            assert muse.default_profile({}) == roots["legacy"]
+            assert muse.resolve_remote_dir(env={}) == muse.REMOTE_LEGACY
+            roots["default"].mkdir(parents=True)
+            assert muse.resolve_remote_dir(env={}) == muse.REMOTE_SWARM
+            assert muse.resolve_remote_dir(env={"IMAGE_GEN_MUSE_PROFILE": str(roots["legacy"])}) == muse.REMOTE_LEGACY
+            assert muse.resolve_remote_dir(env={"IMAGE_GEN_MUSE_REMOTE_DIR": "/home/hatch/work/new/"}) == "/home/hatch/work/new"
+            for value in ("", "relative", "~/workspace", "/home/hatch", "/home/hatch/.", "/home/hatchx/new",
+                          "/home/hatch/work/../escape", "/home/hatch/a;b", " /home/hatch/a", "/home/hatch/a b"):
+                try:
+                    muse.resolve_remote_dir(env={"IMAGE_GEN_MUSE_REMOTE_DIR": value})
+                except RuntimeError:
+                    continue
+                raise AssertionError(f"accepted invalid remote dir {value!r}")
 
 
 if __name__ == "__main__":

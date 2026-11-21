@@ -18,4 +18,6 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 
 每项必填 `id` 和 `prompt`，`aspect`、`ref`、`video`、`engine` 可选。图存在 `out/<id>.png`，进度按行输出 JSON，`out/batch-results.json` 记着每张是哪家出的、花了多久，以及[保留率](keep-rate.zh-CN.md)里的 `keep` 计数。单个引擎的脚本也能单独用，比如 `node skills/imagegen-swarm/scripts/gemini-image.mjs --prompt "..." --out a.png --aspect 1:1`。全部参数见 [SKILL.md](../skills/imagegen-swarm/SKILL.md)。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。
 
+`id` 必须是 1–100 个字符的字符串，以 Unicode 字母或数字开头，其余字符只能是字母、数字、`.`、`_` 或 `-`。例如 `cover-1`、`中文图1`。
+
 只跑一张柠檬切片的检查在[中文说明](../README.zh-CN.md#快速使用)。
