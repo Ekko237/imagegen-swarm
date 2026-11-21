@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3 - 2026-11-21
+
+- The skill description opens with how indie developers, creators, and sellers can pool image quotas across engines.
+- When every selected engine needs setup, batch output lists the missing CLI, runtime, or login for each engine and points to SETUP.md. A missing Playwright install gets a short diagnostic.
+- Lovart reports missing shipped-client credentials before checking billing. An unverified billing mode fails only the current image and leaves Lovart available for the batch.
+
 ## 1.4.2 - 2026-11-20
 
 - Muse uses the legacy cloud directory with the legacy browser profile and supports a validated directory override. Default and legacy approval accept exact-file Allow once text cards. Strict requires a decoded save. Create the directory first or approve its creation manually. Refused approvals and stalled turns report specific failure kinds.

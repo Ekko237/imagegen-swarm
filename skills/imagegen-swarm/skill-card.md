@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Generate images and videos with the Codex, Jimeng, Grok, Gemini, Muse, and Lovart accounts you already have. An optional pay-per-image API line runs when a job names it, or when no enabled subscription engine can take that job, and only after you set a budget."
-version: 1.4.2
+version: 1.4.3
 homepage: https://github.com/Ekko237/imagegen-swarm
 metadata:
   openclaw:

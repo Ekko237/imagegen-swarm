@@ -9,7 +9,7 @@ import { isInvokedDirectly } from './direct.mjs';
 import { engineSpec, hasPaidSpend, loadApiConfig, readLedger } from './api-image.mjs';
 import { ATTEMPT_IGNORED } from './attempt-outcomes.mjs';
 import {
-  RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError, failureText,
+  RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError, engineSetupReason, failureText,
   keepCounts, medianSeconds, paidBudgetLeft, paidMayTake, shouldSteal,
 } from './batch-policy.mjs';
 import {
@@ -257,6 +257,8 @@ async function main() {
   }
   const start = Date.now();
   const down = new Map();
+  const setupReasons = new Map();
+  let sawNonSetupFailure = false;
   const rateStrikes = new Map();
   const rateBackoffUntil = new Map();
   const done = [], failed = [];
@@ -386,7 +388,11 @@ async function main() {
       ...(spendId ? ['--spend-id', spendId] : []),
       ...refs.flatMap(r => ['--ref', r]), ...(job.aspect ? [e.ratioFlag, job.aspect] : []), ...(job.video ? ['--video'] : [])];
     log({ event: job.active.length > 1 ? 'steal' : 'start', id: job.id, engine, lane: n });
-    const r = await runProcess(script.endsWith('.py') ? PY : process.execPath, args, child => { record.child = child; });
+    const usesPython = script.endsWith('.py');
+    const r = await runProcess(usesPython ? PY : process.execPath, args, child => { record.child = child; }).catch(error => {
+      if (!usesPython || error.code !== 'ENOENT') throw error;
+      return { code: 1, stdout: '', stderr: 'Python runtime not installed' };
+    });
     delete record.child;
     record.finished = record.finished ?? new Date().toISOString();
     job.active.splice(job.active.indexOf(record), 1);
@@ -519,11 +525,15 @@ async function main() {
     }
     await rm(temp, { force: true });
     record.outcome = 'failed';
-    job.reason = (engine) + ": " + (failureText(report)).slice(0, 600);
-    const next = applyEngineFailure({ strikes: rateStrikes.get(engine) ?? 0 }, job.reason);
+    const detail = failureText(report);
+    const setupReason = engineSetupReason(detail);
+    if (!setupReason || record.produced) sawNonSetupFailure = true;
+    job.reason = (engine) + ": " + (setupReason && /[\r\n]/.test(detail.trim()) ? setupReason : detail.slice(0, 600));
+    const next = applyEngineFailure({ strikes: rateStrikes.get(engine) ?? 0 }, detail);
     rateStrikes.set(engine, next.strikes);
     if (next.action === 'down') {
       down.set(engine, job.reason);
+      if (setupReason) setupReasons.set(engine, setupReason);
       untry(job, engine);
       log({ event: 'engine_down', engine, reason: job.reason, ...(next.strikes ? { rate_limit_strikes: next.strikes } : {}) });
     } else if (next.action === 'backoff') {
@@ -641,12 +651,22 @@ async function main() {
     engines: series.engines, text_only_engines: [...series.textOnly], partial_ref_engines: [...series.partial],
     engine_style: styleMeans(series.stats),
   } : undefined;
-  const summary = { status: failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
+  const selected = [...new Set(o.engines)];
+  const setupNeeded = failed.length > 0 && !done.length && !sawNonSetupFailure
+    && !failed.some(job => job.stopped_by_budget)
+    && selected.length > 0 && selected.every(engine => setupReasons.has(engine));
+  const summary = { status: setupNeeded ? 'setup_needed' : failed.length ? 'partial' : 'ok', done: done.length, failed: failed.length, by_engine: byEngine, paid,
     keep, engines_down: Object.fromEntries(down), elapsed_seconds: Math.round(((last.length ? Math.max(...last) : Date.now()) - start) / 1000),
     delivery_seconds, ...(seriesReport ? { series: seriesReport } : {}), ...(seriesHint ? { series_hint: true } : {}),
     results: { done, failed, attempts } };
   await writeFile(path.join(o.out, 'batch-results.json'), JSON.stringify(summary, null, 2));
   log({ event: 'summary', ...summary, results: undefined });
+  if (setupNeeded) {
+    console.error(['No selected engine could run:',
+      ...selected.map(engine => '  ' + engine + ': ' + setupReasons.get(engine)),
+      'See SETUP.md for installation and sign-in instructions.',
+    ].join('\n'));
+  }
   if (failed.length) process.exitCode = 1;
 }
 

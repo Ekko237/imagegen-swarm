@@ -59,7 +59,7 @@ export function readLovartEnv(env = process.env) {
   const file = env.LOVART_ENV || path.join(homedir(), ".lovart", "env");
   const out = {};
   for (const key of ["LOVART_ACCESS_KEY", "LOVART_SECRET_KEY", "LOVART_BASE_URL"]) {
-    if (env[key]) out[key] = env[key];
+    if (key === "LOVART_BASE_URL" ? env[key] : env[key]?.trim()) out[key] = env[key];
   }
   if (!existsSync(file)) return out;
   const mode = statSync(file).mode & 0o777;
@@ -73,7 +73,7 @@ export function readLovartEnv(env = process.env) {
   try { text = readFileSync(file, "utf8"); } catch { return out; }
   for (const line of text.split(/\n/)) {
     const match = line.match(/^\s*(?:export\s+)?(LOVART_ACCESS_KEY|LOVART_SECRET_KEY|LOVART_BASE_URL)\s*=\s*(.*)$/);
-    if (!match || out[match[1]]) continue;
+    if (!match || out[match[1]]?.trim()) continue;
     let value = match[2].trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
     out[match[1]] = value;
@@ -137,6 +137,9 @@ async function main() {
 
   const start = Date.now();
   billing = { auth: lv.auth, billing_mode: null };
+  if (lv.auth === "shipped-client" && (!lv.env.LOVART_ACCESS_KEY?.trim() || !lv.env.LOVART_SECRET_KEY?.trim())) {
+    fail("Lovart is missing credentials. See SETUP.md for credential setup.", "not_configured");
+  }
   const mode = await queryBilling(lv);
   billing.billing_mode = mode.billing_mode;
   if (o.queryMode) {

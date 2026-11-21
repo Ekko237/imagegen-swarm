@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { extractCodexAgentError, isImageGenUnavailable } from '../skills/imagegen-swarm/scripts/codex-image.mjs';
 import { probeEngine, readinessState } from '../skills/imagegen-swarm/scripts/readiness.mjs';
 import { childEnv } from '../skills/imagegen-swarm/scripts/scoped-env.mjs';
+import { engineSetupReason } from '../skills/imagegen-swarm/scripts/batch-policy.mjs';
 import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from '../skills/imagegen-swarm/scripts/safety.mjs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -145,6 +146,8 @@ check('quota, auth, and not-installed stop the engine immediately', () => {
     'codex: usage limit reached',
     'muse: weekly limit',
     'grok: 401 unauthorized',
+    'grok: not authenticated',
+    'lovart: missing credentials',
     'codex: not logged in',
     'jimeng: please log in',
     'jimeng: AigcComplianceConfirmationRequired',
@@ -262,6 +265,146 @@ function run(cmd, args, env, cwd) {
     child.on('close', code => resolve({ code, stdout, stderr }));
   });
 }
+
+await checkAsync('batch explains missing engine setup and stays quiet when an engine works', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-setup-'));
+  try {
+    const scripts = path.join(dir, 'scripts');
+    const jobs = path.join(dir, 'jobs.json');
+    await mkdir(scripts);
+    await writeFile(jobs, JSON.stringify([{ id: 'lemon', prompt: 'a lemon' }]));
+    const failures = {
+      'gemini-image.mjs': 'agy not found',
+      'jimeng-image.mjs': 'could not launch dreamina: Error: spawn dreamina ENOENT',
+      'codex-image.mjs': 'codex_not_installed',
+      'grok-image.mjs': 'spawn grok ENOENT',
+      'lovart.mjs': 'Lovart is missing credentials. See SETUP.md. (not_configured)',
+      'muse-image.py': "Traceback (most recent call last):\n  from playwright.sync_api import sync_playwright\nModuleNotFoundError: No module named 'playwright'",
+    };
+    for (const [script, reason] of Object.entries(failures)) {
+      await writeFile(path.join(scripts, script), script.endsWith('.py')
+        ? 'import sys\nsys.exit(' + JSON.stringify(reason) + ')\n'
+        : 'console.error(' + JSON.stringify(reason) + '); process.exitCode = 1;');
+    }
+    const engines = ['gemini', 'jimeng', 'codex', 'grok', 'lovart', 'muse'];
+    const env = { HOME: dir, PYTHON: process.platform === 'win32' ? 'python' : 'python3',
+      IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'), IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off'),
+      IMAGE_GEN_TEST_SCRIPTS: 'yes', IMAGE_GEN_SCRIPT_DIR: scripts };
+    const batch = (name, selected = engines, overrides = {}) => run(process.execPath, [path.join(here, 'batch.mjs'),
+      '--jobs', jobs, '--out', path.join(dir, name), '--engines', selected.join(','),
+      '--lanes', selected.map(engine => engine + '=1').join(',')], { ...env, ...overrides });
+    const unavailable = await batch('unavailable');
+    assert.equal(unavailable.code, 1);
+    const events = unavailable.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(events.at(-1).status, 'setup_needed');
+    assert.equal(events.at(-1).done, 0);
+    assert.equal(events.at(-1).failed, 1);
+    const lines = unavailable.stderr.trim().split('\n');
+    assert.deepEqual(lines, [
+      'No selected engine could run:',
+      '  gemini: missing CLI or runtime',
+      '  jimeng: missing CLI or runtime',
+      '  codex: missing CLI or runtime',
+      '  grok: missing CLI or runtime',
+      '  lovart: missing login or credentials',
+      '  muse: missing CLI or runtime (Playwright not found)',
+      'See SETUP.md for installation and sign-in instructions.',
+    ]);
+    const saved = await readFile(path.join(dir, 'unavailable', 'batch-results.json'), 'utf8');
+    assert.doesNotMatch(unavailable.stdout + unavailable.stderr + saved, /Traceback|ModuleNotFoundError/);
+    assert.match(saved, /Playwright not found/);
+
+    const noPython = await batch('no-python', ['muse'], { PYTHON: path.join(dir, 'missing-python') });
+    assert.equal(noPython.code, 1);
+    assert.match(noPython.stderr, /muse: missing CLI or runtime/);
+    const noPythonEvents = noPython.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(noPythonEvents.at(-1).status, 'setup_needed');
+    assert.match(noPythonEvents.at(-1).engines_down.muse, /Python runtime not installed/);
+
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC';
+    await writeFile(path.join(scripts, 'grok-image.mjs'), [
+      "import { writeFileSync } from 'node:fs';",
+      'writeFileSync(process.argv[process.argv.indexOf("--out") + 1], Buffer.from(' + JSON.stringify(png) + ', "base64"));',
+      'console.log(JSON.stringify({ status: "ok" }));',
+    ].join('\n'));
+    const available = await batch('available');
+    assert.equal(available.code, 0);
+    assert.equal(available.stderr, '');
+    const summary = available.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1);
+    assert.equal(summary.status, 'ok');
+    assert.equal(summary.done, 1);
+    assert.deepEqual(await readFile(path.join(dir, 'available', 'lemon.png')), Buffer.from(png, 'base64'));
+
+    for (const reason of ['quota exhausted', 'content policy refusal']) {
+      await writeFile(path.join(scripts, 'grok-image.mjs'),
+        'console.error(' + JSON.stringify(reason) + '); process.exitCode = 1;');
+      const generationFailure = await batch(reason, ['gemini', 'grok']);
+      assert.equal(generationFailure.code, 1);
+      assert.equal(generationFailure.stderr, '');
+      const events = generationFailure.stdout.trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(events.at(-1).status, 'partial');
+      assert.ok(events.some(event => event.reason?.includes(reason)));
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+async function withLovartBatchFixture(credentials, checkResult) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-lovart-'));
+  try {
+    const jobs = path.join(dir, 'jobs.json');
+    const out = path.join(dir, 'out');
+    const envFile = path.join(dir, 'lovart.env');
+    const python = path.join(dir, 'fake-python');
+    const calls = path.join(dir, 'calls');
+    await writeFile(jobs, JSON.stringify([{ id: 'lemon', prompt: 'a lemon' }]));
+    await writeFile(calls, '');
+    if (credentials) {
+      await writeFile(envFile, 'LOVART_ACCESS_KEY=fixture\nLOVART_SECRET_KEY=fixture\n', { mode: 0o600 });
+    }
+    await writeFile(python, `#!${process.execPath}
+require('node:fs').appendFileSync(${JSON.stringify(calls)}, process.argv[3] + '\\n');
+process.exit(1);
+`, { mode: 0o755 });
+    const result = await run(process.execPath, [path.join(here, 'batch.mjs'),
+      '--jobs', jobs, '--out', out, '--engines', 'lovart', '--lanes', 'lovart=1'], {
+      HOME: dir, USERPROFILE: dir, PYTHON: python,
+      LOVART_ACCESS_KEY: '', LOVART_SECRET_KEY: '', LOVART_ENV: envFile, LOVART_LV: '',
+      IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'), IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off'),
+    });
+    assert.equal(result.code, 1);
+    const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+    await checkResult(result, summary, await readFile(calls, 'utf8'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+await checkAsync('Lovart batch reports setup_needed when shipped-client credentials are missing', async () => {
+  await withLovartBatchFixture(false, (result, summary, calls) => {
+    assert.equal(summary.status, 'setup_needed');
+    assert.match(result.stderr, /lovart: missing login or credentials/);
+    assert.match(result.stderr, /SETUP\.md/);
+    assert.match(summary.engines_down.lovart, /missing credentials.*not_configured/);
+    assert.equal(calls, '');
+  });
+});
+
+await checkAsync('Lovart batch retries billing_mode_unknown with credentials and omits the setup summary', async () => {
+  const reason = 'lovart: Lovart billing mode could not be verified. Check Lovart credentials and connectivity. (billing_mode_unknown)';
+  assert.equal(classifyEngineError(reason), 'retry');
+  assert.equal(engineSetupReason(reason), null);
+  await withLovartBatchFixture(true, (result, summary, calls) => {
+    assert.equal(summary.status, 'partial');
+    assert.equal(Object.hasOwn(summary.engines_down, 'lovart'), false);
+    assert.doesNotMatch(result.stderr, /No selected engine could run/);
+    const events = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(events.some(event => event.event === 'failed' && event.id === 'lemon'
+      && event.reason.includes('billing_mode_unknown')));
+    assert.equal(calls, 'query-mode\n');
+  });
+});
 
 async function hintBatch(dir, document, args = []) {
   const scripts = path.join(dir, 'scripts');
