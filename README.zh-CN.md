@@ -44,7 +44,9 @@ npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 
 ## 快速使用
 
-让你的 agent 画一片蓝底上的柠檬切片。你应该得到一张新的 PNG，这次运行会记下是哪家出的。同一项任务，在仓库根目录运行：
+让你的 agent 画一片蓝底上的柠檬切片。你应该得到一张新的 PNG，这次运行会记下是哪家出的。生成前至少先登录一家引擎；凭据路径和各家命令行的安装步骤见 [SETUP.md](skills/imagegen-swarm/SETUP.md)。在技能文件夹里运行 `node scripts/check.mjs`，可以看到哪些引擎已经就绪。
+
+如果用的是上面那条安装命令，技能会装在你运行 `npx skills add` 时所在目录的 `.agents/skills/imagegen-swarm`（Claude Code 和 Codex 也会加上链接）。安装过程如果弹出确认，可以加上 `-y`。进入这个技能文件夹后运行：
 
 ```bash
 cat > jobs.json <<'EOF'
@@ -52,10 +54,10 @@ cat > jobs.json <<'EOF'
   {"id": "lemon", "prompt": "a lemon slice on a blue background, flat illustration", "aspect": "1:1"}
 ]
 EOF
-node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
+node scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-文件是 `out/lemon.png`。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。任务字段、更完整的例子、以及单独调用一个引擎：[用法](docs/usage.zh-CN.md)。
+文件是 `out/lemon.png`。如果是克隆的仓库，在仓库根目录用 `node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/` 跑同一条命令。如果一家都没登录，或者对应的命令行不在 PATH 里，运行日志会列出各家不可用；类似 `spawn grok ENOENT` 的提示表示找不到 Grok 命令行。任务字段、更完整的例子、以及单独调用一个引擎：[用法](docs/usage.zh-CN.md)。
 
 ## 什么时候别用
 
