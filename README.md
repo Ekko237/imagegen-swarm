@@ -44,7 +44,9 @@ Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`), on macOS
 
 ## Quick use
 
-Ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run log will record which engine made it. The same job from the repository root:
+Ask your agent to draw a lemon slice on a blue background. You should get a new PNG, and the run log will record which engine made it. Log in to at least one engine first; credential paths and CLI install steps are in [SETUP.md](skills/imagegen-swarm/SETUP.md). From the skill folder, `node scripts/check.mjs` lists which engines are ready.
+
+If you installed with the command above, the skill is at `.agents/skills/imagegen-swarm` in the folder where you ran `npx skills add` (Claude Code and Codex also get a link). If the installer asks for confirmation, you can add `-y`. From that skill folder:
 
 ```bash
 cat > jobs.json <<'EOF'
@@ -52,10 +54,10 @@ cat > jobs.json <<'EOF'
   {"id": "lemon", "prompt": "a lemon slice on a blue background, flat illustration", "aspect": "1:1"}
 ]
 EOF
-node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
+node scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
-The file is `out/lemon.png`. In the installed skill folder, drop the `skills/imagegen-swarm/` prefix. Job fields, the longer example, and calling one engine: [Usage](docs/usage.md).
+The file is `out/lemon.png`. If you cloned the repository instead, run the same job from the repository root with `node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/`. If no engine is logged in or its CLI is missing, the run log lists each engine as unavailable; a message like `spawn grok ENOENT` means the Grok CLI is not on PATH. Job fields, the longer example, and calling one engine: [Usage](docs/usage.md).
 
 ## When not to use it
 
