@@ -16,7 +16,7 @@
 </p>
 
 ```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
 觉得有用请点右上角 ★ Star，能让更多人搜到。

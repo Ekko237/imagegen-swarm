@@ -5,19 +5,19 @@
 [中文说明](../README.zh-CN.md)里只有一条钉死版本的安装命令。本页是这条命令、插件和文件夹安装，以及这个版本号是什么意思。
 
 ```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
 这条命令用 npx skills CLI 安装技能，适用于 Claude Code、Codex 和其他 agent。想用插件方式装，就改用下面两段之一。
 
-这里的安装命令都固定在 v1.4.1 版本，装下来的就是这个标签里的代码，装之前可以先到 https://github.com/Ekko237/imagegen-swarm/tree/v1.4.1 看一遍。以后想升级，先到 https://github.com/Ekko237/imagegen-swarm/releases 看新版本的发布说明，再把命令里的 v1.4.1 换成新的标签。
+这里的安装命令都固定在 v1.4.2 版本，装下来的就是这个标签里的代码，装之前可以先到 https://github.com/Ekko237/imagegen-swarm/tree/v1.4.2 看一遍。以后想升级，先到 https://github.com/Ekko237/imagegen-swarm/releases 看新版本的发布说明，再把命令里的 v1.4.2 换成新的标签。
 
 ## Claude Code 插件
 
 在 Claude Code 里输入下面两行，从本仓库的插件市场安装：
 
 ```text
-/plugin marketplace add Ekko237/imagegen-swarm#v1.4.1
+/plugin marketplace add Ekko237/imagegen-swarm#v1.4.2
 /plugin install imagegen-swarm@imagegen-swarm
 ```
 
@@ -26,7 +26,7 @@ npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
 在终端里运行下面两行，从同一个仓库安装 Codex 插件：
 
 ```bash
-codex plugin marketplace add Ekko237/imagegen-swarm --ref v1.4.1
+codex plugin marketplace add Ekko237/imagegen-swarm --ref v1.4.2
 codex plugin add imagegen-swarm@imagegen-swarm
 ```
 
@@ -41,7 +41,7 @@ codex plugin add imagegen-swarm@imagegen-swarm
 把 `skills/imagegen-swarm` 复制或软链接到 agent 的技能目录。文件夹必须命名为 `imagegen-swarm`。
 
 ```bash
-git clone --branch v1.4.1 --depth 1 https://github.com/Ekko237/imagegen-swarm.git
+git clone --branch v1.4.2 --depth 1 https://github.com/Ekko237/imagegen-swarm.git
 mkdir -p ~/.claude/skills ~/.codex/skills
 ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.claude/skills/imagegen-swarm
 ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
@@ -52,7 +52,7 @@ ln -s "$PWD/imagegen-swarm/skills/imagegen-swarm" ~/.codex/skills/imagegen-swarm
 ### npx skills
 
 ```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
 ### Windows

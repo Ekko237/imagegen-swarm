@@ -16,7 +16,7 @@ Got image-gen quota across several AI tools that goes unused? imagegen-swarm is 
 </p>
 
 ```bash
-npx skills add Ekko237/imagegen-swarm@v1.4.1 -a claude-code -a codex
+npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
 If it helps, a ★ Star helps others find it.
