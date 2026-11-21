@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
-import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInvokedDirectly } from './direct.mjs';
@@ -18,6 +18,17 @@ import {
 } from './series-policy.mjs';
 import { RUN_MARKER_FILE, removableWorkPath } from './safety.mjs';
 import { STDIO_DISCARD, STDIO_PIPE } from './stdio-modes.mjs';
+
+export const JOB_ID_RE = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,99}$/u;
+
+export function isValidJobId(id) {
+  return typeof id === "string" && JOB_ID_RE.test(id);
+}
+
+export function jobFileInsideOut(outDir, file) {
+  const rel = path.relative(outDir, file);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
 
 export {
   RATE_LIMIT_STRIKES, STEAL_FACTOR, applyEngineFailure, attemptDisposition, classifyEngineError,
@@ -197,7 +208,10 @@ async function main() {
   const seriesHint = shouldHintSeries({ flag: o.series, root: split.root, jobs, base });
   const ids = new Set();
   for (const job of jobs) {
-    if (!job.id || !job.prompt) throw new Error("every job needs id and prompt: " + (JSON.stringify(job)));
+    if (!job.prompt) throw new Error("every job needs id and prompt: " + (JSON.stringify(job)));
+    if (!isValidJobId(job.id)) {
+      throw new Error("job id may only use letters, digits, '.', '_' and '-' (max 100 characters, starting with a letter or digit): " + JSON.stringify(job.id));
+    }
     if (ids.has(job.id)) throw new Error("duplicate job id: " + (job.id));
     ids.add(job.id);
     job.ref = (job.ref ?? []).map(r => path.resolve(base, r));
@@ -238,6 +252,9 @@ async function main() {
     }));
   }
   for (const job of jobs) job.file = path.join(o.out, (job.id) + "." + (job.video ? 'mp4' : 'png'));
+  for (const job of jobs) {
+    if (!jobFileInsideOut(o.out, job.file)) throw new Error("job file would be written outside --out: " + JSON.stringify(job.id));
+  }
   const start = Date.now();
   const down = new Map();
   const rateStrikes = new Map();
@@ -339,6 +356,11 @@ async function main() {
     // 先写临时文件，赢了才改成正式文件名
     const temp = path.join(o.out, ".attempt-" + (job.id) + "-" + (engine) + "-" + (serial++) + (path.extname(job.file)));
     const spendId = e.paid ? randomBytes(16).toString('hex') : null;
+    const existing = await lstat(temp).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (existing?.isSymbolicLink()) throw new Error("Refusing batch attempt output symlink: " + path.basename(temp));
     ownedNames.add(path.basename(temp));
     const script = engineScript(e.script);
     // The parent of the temp output exists before Muse (or any other engine) is started.

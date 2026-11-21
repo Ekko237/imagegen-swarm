@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "scripts": {
+    "smoke": "node skills/imagegen-swarm/scripts/smoke.mjs",
+    "test": "node tests/reliability.test.mjs && node tests/series.test.mjs && node tests/series-consistency.test.mjs && python3 tests/reliability_rename_test.py && python3 tests/clip_hash_test.py && node tests/smoke-logic.test.mjs"
+  }
+}

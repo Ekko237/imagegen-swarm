@@ -301,7 +301,7 @@ if (numpy.code !== 0) {
   await writeFile(path.join(stubDir, 'onnxruntime.py'), STUB);
   const model = path.join(work, 'fake-model.onnx');
   await writeFile(model, 'not a real model');
-  const withStub = { PYTHONPATH: stubDir, IMAGE_GEN_CLIP_MODEL: model };
+  const withStub = { PYTHONPATH: stubDir, IMAGE_GEN_CLIP_MODEL: model, IMAGE_GEN_CLIP_ALLOW_UNVERIFIED: "yes" };
 
   await checkAsync('clip plumbing with a stub runtime: identical image scores 1, auto picks clip', async () => {
     const r = await run(PY, [IMGTOOL, 'backends', '--verify'], withStub);

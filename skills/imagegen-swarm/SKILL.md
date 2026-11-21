@@ -1,7 +1,7 @@
 ---
 name: imagegen-swarm
 description: "Use when the user asks to generate an image, draw, edit an image, use reference images, make a video, or do text-to-image or text-to-video. Also use when the request names Codex, Grok, Grok Imagine, Gemini, nano banana, Antigravity, Jimeng, Dreamina, Muse, Lovart, gpt-image, or a pay-per-image API. Jimeng and Grok can make video. An optional pay-per-image API line (OpenAI or Gemini API) runs when a job names api, or when no enabled subscription engine can take that job. Jimeng can edit from up to 10 reference images. Antigravity Gemini edits up to 3 reference images. The optional paid Gemini API allows 3 references for gemini-2.5-flash-image and 14 for later Gemini image models. For a shared character, brand, mascot, or cover series, ask before enabling series mode. Not for crop, resize, convert, or other ordinary local image processing."
-version: 1.4.1
+version: 1.4.2
 allowed-tools: Bash Read Write WebFetch Env
 metadata:
   openclaw:
@@ -22,6 +22,7 @@ metadata:
         - $HOME/.config/imagegen-swarm/engine-off
         - $HOME/.config/imagegen-swarm/muse-browser
         - $HOME/.config/imagegen-swarm/models
+        - $HOME/.config/imagegen-swarm/smoke-last.json
         - $HOME/.config/image-gen/engine-off
         - $HOME/.config/image-gen/muse-browser
         - $HOME/.codex/auth.json
@@ -52,13 +53,13 @@ metadata:
         description: Lovart secret key. Read from the environment or from the file $HOME/.lovart/env. That file is read as text and is not executed.
       - name: LOVART_ENV
         required: false
-        description: Lovart credentials file. Defaults to $HOME/.lovart/env, must be owner-only, and is read as text.
+        description: Lovart credentials file. Defaults to $HOME/.lovart/env and is read as text. Group or other write access is refused. Read access produces a warning.
       - name: LOVART_BASE_URL
         required: false
         description: "Lovart API base URL. Defaults to https://lgw.lovart.ai."
       - name: LOVART_LV
         required: false
-        description: Optional Lovart wrapper path. The shipped client is scripts/lovart_agent.py.
+        description: Optional Lovart wrapper path. An existing wrapper takes precedence over scripts/lovart_agent.py.
       - name: LOVART_AGENT_SKILL
         required: false
         description: Read only by an optional user-made lv wrapper to locate scripts/lovart_agent.py. The bundled scripts do not read it; check.mjs passes it through to its probes.
@@ -83,12 +84,30 @@ metadata:
       - name: IMAGE_GEN_MUSE_PROFILE
         required: false
         description: Muse browser profile directory. Defaults to $HOME/.config/imagegen-swarm/muse-browser. Created only by muse-image.py --login.
+      - name: IMAGE_GEN_MUSE_REMOTE_DIR
+        required: false
+        description: Cloud save directory under /home/hatch/. Defaults to /home/hatch/workspace/image-gen for the legacy profile and /home/hatch/workspace/imagegen-swarm otherwise.
+      - name: IMAGE_GEN_MUSE_APPROVAL
+        required: false
+        description: Default and legacy accept narrowly scoped exact-file Allow once cards. Strict requires a fully decoded single-image save.
+      - name: IMAGE_GEN_GROK_MODE
+        required: false
+        description: Pin scoped or legacy. By default a scoped tool refusal triggers one workspace-sandboxed retry, with Bash and web tools still denied.
+      - name: IMAGE_GEN_SMOKE_CACHE
+        required: false
+        description: Optional override for the local smoke readiness cache path.
+      - name: IMAGE_GEN_SMOKE_SCRIPTS_DIR
+        required: false
+        description: Offline smoke fixture directory. Fixture runs save their result beside the test output instead of updating account readiness.
       - name: HTTPS_PROXY
         required: false
         description: Optional proxy for the Muse browser only.
       - name: IMAGE_GEN_CLIP_MODEL
         required: false
         description: Optional local CLIP ONNX file for the series-mode clip score. Defaults to $HOME/.config/imagegen-swarm/models/clip-vit-b32-vision-q8.onnx. Read only; never downloaded by the skill.
+      - name: IMAGE_GEN_CLIP_ALLOW_UNVERIFIED
+        required: false
+        description: Set to yes only if the user explicitly trusts a CLIP ONNX file whose SHA-256 is outside the validated list.
       - name: https_proxy
         required: false
         description: Lower-case form of HTTPS_PROXY, read only when HTTPS_PROXY is unset or empty. Muse browser only.
@@ -106,7 +125,7 @@ metadata:
         description: Test hook. Set to yes by the repository tests so batch.mjs uses IMAGE_GEN_SCRIPT_DIR.
       - name: IMAGE_GEN_TEST_NO_KEY
         required: false
-        description: Test fixture key name. The bundled scripts never read it directly; check.mjs passes it through so a test api.json can name it with key_env.
+        description: Test fixture key name. A fake api.json may select it with key_env.
 ---
 
 # imagegen-swarm
@@ -145,7 +164,8 @@ and a job reference are. Do not send sensitive, confidential, or personal
 content unless the user has agreed that this provider may see it. Add another provider only after
 the user names that provider and agrees.
 
-An example job list has one object per image. Only `id` and `prompt` are required. A sample file
+An example job list has one object per image. Only `id` and `prompt` are required. An ID has 1–100 characters,
+starts with a Unicode letter or number, and then permits letters, numbers, `.`, `_` and `-`. A sample file
 lives in the git repository at <https://github.com/Ekko237/imagegen-swarm/blob/main/examples/jobs.example.json>;
 it is not part of the installed skill.
 
@@ -268,7 +288,7 @@ credentials file. That file is read as text; only the three names in the table a
 ## Network and credentials
 
 Every outbound connection the bundled scripts make, and every secret they read. Nothing here runs
-until the user asks for an image, or runs `scripts/check.mjs`. Each engine is optional: its files
+until the user asks for an image or runs a readiness or smoke check. Each engine is optional: its files
 and variables matter only if the user set that engine up. ClawHub lists every `requires.config`
 entry as required; all of them are optional per engine.
 
@@ -281,7 +301,8 @@ entry as required; all of them are optional per engine.
 | `muse-image.py` | `https://muse.ai` in a local Playwright Chromium | A job runs on muse, `--login`, `--list-chats` | Browser session in the Muse profile directory (`IMAGE_GEN_MUSE_PROFILE`) | Prompt, reference images; optional proxy from `HTTPS_PROXY` / `https_proxy` |
 | `lovart.mjs` → `lovart_agent.py` → `lovart_client.py` | `https://lgw.lovart.ai/v1/openapi/...` (or `LOVART_BASE_URL`): `file/upload`, `chat`, `chat/status`, `chat/result`, `project/*`, `mode/*`; then the artifact URLs that Lovart returns | A job runs on lovart | `LOVART_ACCESS_KEY` / `LOVART_SECRET_KEY` from the environment or the file `$HOME/.lovart/env` (`LOVART_ENV`); the access key goes in the `X-Access-Key` header; the secret key only signs each request (HMAC-SHA256) and is never sent | Prompt, the reference files named for the job, project and thread ids |
 | `api-image.mjs` | `https://api.openai.com` (`/v1/images/generations`, `/v1/images/edits`) or `https://generativelanguage.googleapis.com` (`/v1beta/interactions`), or `base_url` from `api.json` | A job runs on the optional paid line | `OPENAI_API_KEY` / `GEMINI_API_KEY`, the variable named by `key_env`, or the mode-600 `key_file` from `api.json` | Prompt, reference images, the key as the provider's auth header |
-| `check.mjs` | Same CLIs and hosts: `grok models`, `agy models`, `dreamina user_credit`, `scripts/muse-image.py --list-chats`, Lovart `mode/query`, and `GET /v1/models` (OpenAI) or `/v1beta/models` (Gemini) | The user runs the check | Same as the engine it probes. For Codex it only tests that `CODEX_HOME/auth.json` exists | No prompts or images; the paid-line check sends only the key |
+| `check.mjs` | Same CLIs and hosts: `grok models`, `agy models`, `dreamina user_credit`, `scripts/muse-image.py --list-chats`, Lovart `mode/query`, and `GET /v1/models` (OpenAI) or `/v1beta/models` (Gemini) | The user runs the check | Same as the engine it probes. For Codex it only tests that `CODEX_HOME/auth.json` exists | No prompts or images in probe-only mode. The paid-line check sends only the key |
+| `smoke.mjs` or `check.mjs --live` | The checks above and the selected engines | The user starts generation smoke | Same credentials as the engine | A fixed red-circle prompt with no references |
 
 `batch.mjs`, `imgtool.py`, `lovart_state.py`, and the other helper modules make no network calls.
 Engine CLIs keep their own logins; the scripts never read their contents or copy them. Local files read for
@@ -323,9 +344,11 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   auth, config, sessions, or any other file there. See [references/codex.md](references/codex.md).
 - **grok**: `grok-image.mjs` is the whole procedure. No `--ref` → text to image; `--ref` → edit
   (keeps the source aspect ratio); `--video --ref` → 6 s 720p video (`--out` must be .mp4, `--ratio`
-  cannot be auto). The Grok CLI runs in the work directory with sandbox profile `workspace` and
-  permission mode `dontAsk`, and may use only the one imagine tool this job needs (`image_gen`,
-  `image_edit`, or `reference_to_video`) plus `Write`. Shell, web fetch, and web search are denied.
+  cannot be auto). The first attempt uses the workspace sandbox and `dontAsk`, scoped to the
+  job's imagine tool and `Write`. A tool refusal can trigger one retry with the legacy
+  `--always-approve` flags inside the workspace sandbox. Both modes deny Bash, WebFetch, and
+  WebSearch. Set `IMAGE_GEN_GROK_MODE=scoped` or `legacy` to pin a mode. Success JSON reports
+  the mode in `grok_mode`.
   Video needs Grok data sharing set to Opt in; on a "zero data retention" error, tell the user
   rather than changing the setting.
 - **jimeng**: uses the official Dreamina CLI (`dreamina`), which the user installs from the pinned
@@ -358,24 +381,26 @@ and video only goes to jimeng and grok (only jimeng does video without a referen
   Generation failures still exit 1. Before Muse is started, batch creates the output directory and uses its real
   path, and `muse-image.py` creates that file's parent again. A relative `--out` is resolved against
   the current working directory, like the other engine scripts (before 1.3.4 Muse resolved it
-  against `$HOME`); `~` still means the local home. Muse is told to write the PNG at one
-  exact cloud path and not to create a directory or a temporary name. If Muse asks for approval,
-  the policy permits only "Allow once" for exactly one decoded image-save operation with exactly
-  one path equal to this run's output file. `~` is read as `/home/hatch`, `.` and `..` are removed,
-  and existing symlinks are resolved before comparison. Directory creation, extra operations or
-  paths, commands, reads, network access, and unknown arguments are refused. Free-text descriptions
-  never grant permission. No live approval card has been captured, so no operation/path layout is
-  verified. In a live test on 2026-11-17 Muse showed no card at all. The script never clicks an
-  approval card on its own: if a card appears, it leaves the card unclicked and stops the job with
-  a RuntimeError saying the card's shape was not recognized, and the user decides what happens next.
-  Jobs where Muse shows no card run normally.
-  See [references/muse.md](references/muse.md) for the evidence and decoder requirements.
+  against `$HOME`); `~` still means the local home. The cloud directory is
+  `/home/hatch/workspace/imagegen-swarm`, or `/home/hatch/workspace/image-gen` when the legacy browser
+  profile is selected. `IMAGE_GEN_MUSE_REMOTE_DIR` overrides it with an absolute directory under
+  `/home/hatch/`, using only letters, digits, underscores, dots, slashes and hyphens and containing no
+  `..`. Create the directory first on a new environment or handle its creation approval
+  manually. The script never auto-approves directory creation. Default and `legacy` accept
+  an `Allow once` text card only when every parsed path identifies this run's exact PNG
+  and the card passes the command and metacharacter checks. `IMAGE_GEN_MUSE_APPROVAL=strict`
+  requires a fully decoded single-image save. The live extractor currently returns
+  `request: null`. A refused card stops the job without a click.
+  See [references/muse.md](references/muse.md).
   Ask the user before approving a stopped request. `IMAGE_GEN_MUSE_PROFILE` must resolve
   under `$HOME/.config/imagegen-swarm` or be the legacy default
   `$HOME/.config/image-gen/muse-browser`. Anything else is refused. One process at a time can use
   the browser. An existing profile in the previous `image-gen` folder is still used until the user
   moves it.
-- **lovart**: `scripts/lovart.mjs` runs `scripts/lovart_agent.py` (the command entry). HTTP calls
+- **lovart**: An existing `lv` wrapper takes precedence over the bundled `lovart_agent.py`.
+  The script queries billing before generation. Pass `--require-free` to require unlimited mode and a
+  whitelisted model. Without `--require-free`, a mode or model that spends credits
+  triggers a warning and generation proceeds with credits. Lovart JSON includes `auth` and `billing_mode`. HTTP calls
   are in `scripts/lovart_client.py` and the local project list is in `scripts/lovart_state.py`,
   split from the readable v1.1.1 client so each file stays small enough to review. It opens a fresh
   thread every call (concurrent jobs on one thread return 409). A passing `query-mode` does not
@@ -553,7 +578,12 @@ the user named fails, report it instead of switching to the web.
 
 ## Checks
 
-- `node scripts/check.mjs`: login status of all six engines (Dreamina also shows remaining credits).
+- `node scripts/check.mjs`: current login probes and recent smoke readiness of all seven routes.
+- `node scripts/smoke.mjs --engines <list>`: test selected routes one at a time with one square PNG.
+  `--timeout <seconds>` caps each engine (default 300). Progress prints as each row runs.
+  The run folder keeps `SMOKE_TABLE.txt` after a timeout or SIGINT/SIGTERM.
+  Confirm Muse billing before selecting it. Jimeng and the paid API are skipped by default.
+  Lovart's default smoke requires unlimited mode and the whitelisted default model.
   With the api line configured, it checks the key against the free model-list endpoint and shows
   this month's spend and budget.
 - After changing a script, run `node tests/reliability.test.mjs`, `node tests/series.test.mjs` and

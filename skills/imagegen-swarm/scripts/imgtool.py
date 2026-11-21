@@ -185,7 +185,7 @@ def clip_model_path():
     return os.path.join(os.path.expanduser("~"), ".config", "imagegen-swarm", "models", CLIP_MODEL_NAME)
 
 
-def clip_status(hash_model=False):
+def clip_status():
     """Is the optional CLIP backend usable? Never downloads anything."""
     path = clip_model_path()
     status = {"available": False, "model": path}
@@ -204,13 +204,15 @@ def clip_status(hash_model=False):
     if not os.path.isfile(path):
         status["reason"] = "model file not found (optional; see SETUP.md, Series consistency)"
         return status
-    if hash_model:
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for block in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(block)
-        status["sha256"] = digest.hexdigest()
-        status["known_model"] = CLIP_KNOWN_SHA256.get(status["sha256"])
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    status["sha256"] = digest.hexdigest()
+    status["known_model"] = CLIP_KNOWN_SHA256.get(status["sha256"])
+    if not status["known_model"] and os.environ.get("IMAGE_GEN_CLIP_ALLOW_UNVERIFIED") != "yes":
+        status["reason"] = "clip model hash is not one of the validated models; see SETUP.md"
+        return status
     status["available"] = True
     return status
 
@@ -302,8 +304,8 @@ def style_score(output, anchors, method=PALETTE):
     return result
 
 
-def backends(hash_model=False):
-    clip = clip_status(hash_model=hash_model)
+def backends():
+    clip = clip_status()
     return {
         "methods": {
             STRUCTURE: {"available": True, "weights": STRUCTURE_WEIGHTS},
@@ -343,7 +345,7 @@ def main():
         print(json.dumps(style_score(output, anchors, method)))
         return
     if command == "backends":
-        print(json.dumps(backends(hash_model="--verify" in sys.argv[2:])))
+        print(json.dumps(backends()))
         return
     path = sys.argv[2]
     with Image.open(path) as image:
