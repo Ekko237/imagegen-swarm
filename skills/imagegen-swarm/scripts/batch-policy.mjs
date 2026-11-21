@@ -6,7 +6,7 @@ import { ATTEMPT_FAIL, ATTEMPT_IGNORED, ATTEMPT_WIN } from "./attempt-outcomes.m
 export const RATE_LIMIT_STRIKES = 3;
 export const STEAL_FACTOR = 1.5;
 const QUOTA_DOWN = /\bquota\b|\bcredits?\b|积分|余额|insufficient_quota|预算用完|budget used up|insufficient balance|usage limit|weekly limit|insufficient\s+(?:credits?|quota|balance|funds)|not enough\s+(?:credits?|quota|balance)|out of\s+(?:credits?|quota)/i;
-const AUTH_DOWN = /unauthori[sz]ed|\bnot logged[ -]?in\b|\blog[ -]?in\b|\bnot authenticated\b|\b(?:no|missing) credentials\b|authentication required|not_configured|\bbilling_mode_unknown\b/i;
+const AUTH_DOWN = /unauthori[sz]ed|\bnot logged[ -]?in\b|\blog[ -]?in\b|\bnot authenticated\b|\b(?:no|missing) credentials\b|authentication required|not_configured/i;
 const COMPLIANCE_DOWN = /ComplianceConfirmation/i;
 const PLAYWRIGHT_MISSING = /ModuleNotFoundError:\s*No module named ['"]playwright['"]|\bplaywright not found\b/i;
 // 「not found / ENOENT」只认引擎本身没装。参考图或输出文件找不到不算整家引擎挂了。

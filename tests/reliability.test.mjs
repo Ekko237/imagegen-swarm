@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { extractCodexAgentError, isImageGenUnavailable } from '../skills/imagegen-swarm/scripts/codex-image.mjs';
 import { probeEngine, readinessState } from '../skills/imagegen-swarm/scripts/readiness.mjs';
 import { childEnv } from '../skills/imagegen-swarm/scripts/scoped-env.mjs';
+import { engineSetupReason } from '../skills/imagegen-swarm/scripts/batch-policy.mjs';
 import { STDIO_QUIET, removableWorkPath, sandboxMayWiden } from '../skills/imagegen-swarm/scripts/safety.mjs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -277,7 +278,7 @@ await checkAsync('batch explains missing engine setup and stays quiet when an en
       'jimeng-image.mjs': 'could not launch dreamina: Error: spawn dreamina ENOENT',
       'codex-image.mjs': 'codex_not_installed',
       'grok-image.mjs': 'spawn grok ENOENT',
-      'lovart.mjs': 'Lovart billing mode could not be verified. Check Lovart credentials and connectivity. (billing_mode_unknown)',
+      'lovart.mjs': 'Lovart is missing credentials. See SETUP.md. (not_configured)',
       'muse-image.py': "Traceback (most recent call last):\n  from playwright.sync_api import sync_playwright\nModuleNotFoundError: No module named 'playwright'",
     };
     for (const [script, reason] of Object.entries(failures)) {
@@ -347,6 +348,62 @@ await checkAsync('batch explains missing engine setup and stays quiet when an en
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+async function withLovartBatchFixture(credentials, checkResult) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-lovart-'));
+  try {
+    const jobs = path.join(dir, 'jobs.json');
+    const out = path.join(dir, 'out');
+    const envFile = path.join(dir, 'lovart.env');
+    const python = path.join(dir, 'fake-python');
+    const calls = path.join(dir, 'calls');
+    await writeFile(jobs, JSON.stringify([{ id: 'lemon', prompt: 'a lemon' }]));
+    await writeFile(calls, '');
+    if (credentials) {
+      await writeFile(envFile, 'LOVART_ACCESS_KEY=fixture\nLOVART_SECRET_KEY=fixture\n', { mode: 0o600 });
+    }
+    await writeFile(python, `#!${process.execPath}
+require('node:fs').appendFileSync(${JSON.stringify(calls)}, process.argv[3] + '\\n');
+process.exit(1);
+`, { mode: 0o755 });
+    const result = await run(process.execPath, [path.join(here, 'batch.mjs'),
+      '--jobs', jobs, '--out', out, '--engines', 'lovart', '--lanes', 'lovart=1'], {
+      HOME: dir, USERPROFILE: dir, PYTHON: python,
+      LOVART_ACCESS_KEY: '', LOVART_SECRET_KEY: '', LOVART_ENV: envFile, LOVART_LV: '',
+      IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'), IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off'),
+    });
+    assert.equal(result.code, 1);
+    const summary = JSON.parse(result.stdout.trim().split('\n').at(-1));
+    await checkResult(result, summary, await readFile(calls, 'utf8'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+await checkAsync('Lovart batch reports setup_needed when shipped-client credentials are missing', async () => {
+  await withLovartBatchFixture(false, (result, summary, calls) => {
+    assert.equal(summary.status, 'setup_needed');
+    assert.match(result.stderr, /lovart: missing login or credentials/);
+    assert.match(result.stderr, /SETUP\.md/);
+    assert.match(summary.engines_down.lovart, /missing credentials.*not_configured/);
+    assert.equal(calls, '');
+  });
+});
+
+await checkAsync('Lovart batch retries billing_mode_unknown with credentials and omits the setup summary', async () => {
+  const reason = 'lovart: Lovart billing mode could not be verified. Check Lovart credentials and connectivity. (billing_mode_unknown)';
+  assert.equal(classifyEngineError(reason), 'retry');
+  assert.equal(engineSetupReason(reason), null);
+  await withLovartBatchFixture(true, (result, summary, calls) => {
+    assert.equal(summary.status, 'partial');
+    assert.equal(Object.hasOwn(summary.engines_down, 'lovart'), false);
+    assert.doesNotMatch(result.stderr, /No selected engine could run/);
+    const events = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(events.some(event => event.event === 'failed' && event.id === 'lemon'
+      && event.reason.includes('billing_mode_unknown')));
+    assert.equal(calls, 'query-mode\n');
+  });
 });
 
 async function hintBatch(dir, document, args = []) {
