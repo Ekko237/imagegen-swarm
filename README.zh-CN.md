@@ -4,30 +4,43 @@
 
 手上有好几家 AI 出图工具，额度每月用不完就作废？imagegen-swarm 是一个 Claude Code / Codex 技能，把它们排进同一个队列，一次批量出图，哪家额度用完就换下一家。
 
-<p align="center">
-  <img src="docs/demo.gif" alt="终端演示：只用 gemini 一家引擎，开 6 条通道同时画 6 张图" width="720" />
-</p>
-<p align="center">
-  <em>真实终端录制：只用 gemini，参数 <code>--lanes gemini=6</code>，6 张图同时开画并一起出齐。不是多引擎演示。</em>
-</p>
+## 适合谁
 
-<p align="center">
-  <img src="docs/showcase.webp" alt="imagegen-swarm 画的 12 张图拼成的网格，每张都标着是哪家引擎画的：gemini、jimeng（即梦）、codex、grok、lovart 或 muse" width="520" />
-</p>
+已经付了好几家 AI 出图订阅、又要批量出图的独立开发者、内容创作者和电商卖家。手里常见的是 Codex、Gemini、Grok、Muse、Lovart、即梦（Jimeng / Dreamina）这类额度。封面、文章配图、商品图，或一次出一组变体，都可以丢进同一个队列。先登录一家就能用，接上的越多，这一批结束得越快。
+
+## 为什么现在就该试
+
+出图额度散在好几家工具里，按周或按月刷新，大多放着不用，到期就作废。只用一家又慢，做到一半额度用完，这批就停。
+
+一次实测里，在 8GB 内存的 M1 MacBook Pro 上，同一队列用 2.3 分钟的生成时间出完 50 张图，比这次跑得最快的那家单独干要快 11 倍。做到一半，Gemini 和 Lovart 额度用完，其余引擎仍把 50 张全部交了。图和注意事项见[实测结果](#实测结果)。
+
+另有一份生产记录，覆盖 2026-09-20 至 2026-11-21 之间有出图的 30 天，本技能的引擎（codex、jimeng、lovart、gemini、muse 和 grok）一共交付了 1,265 张图。这 30 天里有 20 天同时用到了两家或更多引擎。这份记录里没有每张图的耗时。
 
 ```bash
 npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
+[用法](docs/usage.zh-CN.md) · [反馈 / 提 issue](https://github.com/Ekko237/imagegen-swarm/issues) · [贡献指南](CONTRIBUTING.md) · [ClawHub](https://clawhub.ai/ekko237/skills/imagegen-swarm) · [skills.sh](https://skills.sh/ekko237/imagegen-swarm)
+
 觉得有用请点右上角 ★ Star，能让更多人搜到。
 
-## 它解决什么问题
-
-出图额度散在好几家工具里，按周或按月刷新，大多放着不用，到期就作废。只用一家又慢，做到一半额度用完，这批就停。再手动换到下一家，把没做完的图接上，很麻烦。
-
-## 适合谁
+## 运行要求
 
 需要 Node.js 18+，以及装了 Pillow 的 Python 3（`python3 -m pip install pillow`）。macOS、Windows、Linux 都能用。生成前至少登录一个引擎。Lovart 需要官方 AK/SK。有一家就能用，接上的越多，生成越快。各家凭据路径见 [SETUP.md](skills/imagegen-swarm/SETUP.md)。
+
+<p align="center">
+  <img src="docs/demo.gif" alt="终端演示：只用 gemini 一家引擎，开 6 条通道同时画 6 张图" width="720" />
+</p>
+<p align="center">
+  <em>真实命令行录制：只用 gemini 一家引擎，6 个任务同时跑。多引擎录屏稍后补上。</em>
+</p>
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="imagegen-swarm 画的 12 张图拼成的网格，每张都标着是哪家引擎画的：gemini、jimeng（即梦）、codex、grok、lovart 或 muse" width="520" />
+</p>
+<p align="center">
+  <em>六家引擎画出的图，每张都标着是哪家画的：gemini、jimeng（即梦）、codex、grok、lovart 或 muse。</em>
+</p>
 
 ## 快速使用
 
@@ -43,6 +56,21 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
 文件是 `out/lemon.png`。在已安装的技能文件夹里，去掉前面的 `skills/imagegen-swarm/`。任务字段、更完整的例子、以及单独调用一个引擎：[用法](docs/usage.zh-CN.md)。
+
+## 什么时候别用
+
+- 不适合裁剪、缩放、转格式，或其它普通的本地图片处理。
+- 生成前至少要登录一家引擎，或者配好可选的按张付费 API。一家都没有，队列没有引擎可跑。
+- 只有即梦（Jimeng）和 Grok 能做视频。Codex、Gemini、Muse、Lovart 和可选的 API 线路只出图（以及各自支持的改图或参考图），不能做视频。
+
+## 和其他做法比
+
+| | 手动换工具 | 按张调用付费 API | imagegen-swarm |
+| --- | --- | --- | --- |
+| 怎么开始 | 自己打开各家工具，把提示词贴进去 | 准备自己的 OpenAI 或 Gemini API key，再写脚本或用各家界面 | 至少登录一家引擎。Lovart 需要官方 AK/SK |
+| 费用怎么算 | 用你已经在付的订阅额度 | 按张付费 | 先用这些订阅额度。按张付费的 API 线路是本技能的可选功能：你可以把它加成最后兜底，并自己设定每批和每月的预算。只有在没有订阅引擎能接这张图时，它才会出手 |
+| 额度用完时 | 你自己换到下一家，把没做完的图接上 | 请求失败，或者再去买额度 | 这家引擎停掉，把当前任务放回队列，别家接着做。如果所有订阅都用完了，并且你配了付费线路，这条线路会一直做到预算用完 |
+| 能不能并行 | 取决于你怎么在各家工具里操作，通常是一家一家来 | 取决于接口本身，以及你在外面怎么写 | 每家引擎同时开几条通道，空出来的通道接下一条任务。通道数量按内存来：4GB 的电脑 12 条，16GB 及以上 34 条 |
 
 ## 引擎
 

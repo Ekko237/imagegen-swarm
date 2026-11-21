@@ -4,30 +4,43 @@
 
 Got image-gen quota across several AI tools that goes unused? imagegen-swarm is a Claude Code / Codex skill that puts them all on one queue and fails over when one runs out.
 
-<p align="center">
-  <img src="docs/demo.gif" alt="Terminal demo: gemini alone, six lanes in parallel, six images finish together" width="720" />
-</p>
-<p align="center">
-  <em>Real CLI run on one engine (gemini) with <code>--lanes gemini=6</code>: six jobs start together and all finish. Not a multi-engine demo.</em>
-</p>
+## Who it's for
 
-<p align="center">
-  <img src="docs/showcase.webp" alt="A grid of 12 images drawn by imagegen-swarm, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart or muse" width="520" />
-</p>
+Indie developers, content creators, and e-commerce sellers who already pay for several AI image subscriptions (Codex, Gemini, Grok, Muse, Lovart, Jimeng / Dreamina, or similar) and need images in batches: covers, article art, product shots, or a set of variants. You only need one engine logged in. Every engine you add makes a batch finish faster.
+
+## Why try it now
+
+Image quotas are scattered across tools, and the weekly or monthly allowance mostly sits unused until it expires. A single engine is slow, and the batch stops when that engine runs out partway through.
+
+In one measured run on an 8 GB M1 MacBook Pro, this queue generated 50 images in 2.3 minutes of generation time, 11 times faster than the fastest engine in that run working alone. Gemini and Lovart hit their limits partway through, and the remaining engines still delivered all 50. Charts and caveats for that run are in [Tested results](#tested-results).
+
+A separate production log covering 30 working days between 2026-09-20 and 2026-11-21 recorded 1,265 images delivered by this skill's engines (codex, jimeng, lovart, gemini, muse, and grok). Two or more of those engines appear on 20 of those 30 days. That log has no per-image timings.
 
 ```bash
 npx skills add Ekko237/imagegen-swarm@v1.4.2 -a claude-code -a codex
 ```
 
+[Usage](docs/usage.md) · [Report an issue](https://github.com/Ekko237/imagegen-swarm/issues) · [Contributing](CONTRIBUTING.md) · [ClawHub](https://clawhub.ai/ekko237/skills/imagegen-swarm) · [skills.sh](https://skills.sh/ekko237/imagegen-swarm)
+
 If it helps, a ★ Star helps others find it.
 
-## What problem it solves
-
-Image quotas are scattered across tools, and the weekly or monthly allowance mostly sits unused until it expires. A single engine is slow, and the batch stops when that engine runs out partway through. Switching by hand to the next tool and picking the unfinished jobs back up is tedious.
-
-## Who it's for
+## Requirements
 
 Node.js 18+ and Python 3 with Pillow (`python3 -m pip install pillow`), on macOS, Windows, or Linux. Log in to at least one engine before generating. Lovart requires its official AK/SK. You only need one engine logged in. Every engine you add makes generation faster. Credential paths are in [SETUP.md](skills/imagegen-swarm/SETUP.md).
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Terminal demo: gemini alone, six lanes in parallel, six images finish together" width="720" />
+</p>
+<p align="center">
+  <em>Real CLI run: six jobs in parallel on one engine (gemini). Multi-engine recording coming.</em>
+</p>
+
+<p align="center">
+  <img src="docs/showcase.webp" alt="A grid of 12 images drawn by imagegen-swarm, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart or muse" width="520" />
+</p>
+<p align="center">
+  <em>Images from six engines, each tile labeled with the engine that drew it: gemini, jimeng, codex, grok, lovart, or muse.</em>
+</p>
 
 ## Quick use
 
@@ -43,6 +56,21 @@ node skills/imagegen-swarm/scripts/batch.mjs --jobs jobs.json --out out/
 ```
 
 The file is `out/lemon.png`. In the installed skill folder, drop the `skills/imagegen-swarm/` prefix. Job fields, the longer example, and calling one engine: [Usage](docs/usage.md).
+
+## When not to use it
+
+- Not for crop, resize, convert, or other ordinary local image processing.
+- You need at least one engine logged in, or the optional paid API line configured. With neither, the queue has nothing to run.
+- Only Jimeng and Grok can make video. Codex, Gemini, Muse, Lovart, and the optional API line do images (and, where listed below, edits or reference images), not video.
+
+## Compared with alternatives
+
+| | Switching tools by hand | Paying per image via an API | imagegen-swarm |
+| --- | --- | --- | --- |
+| Setup | Open each tool and paste the prompts yourself | Your own OpenAI or Gemini API key, plus your own scripts or UI | Log in to at least one engine. Lovart needs its official AK/SK |
+| Cost model | The subscriptions you already pay for | You pay per image | Uses those same subscription quotas. An optional pay-per-image API line (OpenAI or Gemini API) is a feature of this skill: you can add it as a last resort, with per-batch and per-month budgets you set. It only takes a job when no subscription engine can |
+| When a quota runs out | You switch tools and pick up the unfinished jobs yourself | The request fails, or you buy more credits | The engine shuts down and returns its job to the queue; other engines take over. If every subscription is out and you configured the paid line, that line continues until its budget is used |
+| Parallelism | Whatever you do in each tool, usually one tool at a time | Depends on the API and whatever you build around it | Each engine opens multiple lanes, and every free lane grabs the next job. Lane counts scale with RAM, from 12 lanes on a 4 GB laptop to 34 on 16 GB or more |
 
 ## Engines
 
