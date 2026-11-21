@@ -145,6 +145,8 @@ check('quota, auth, and not-installed stop the engine immediately', () => {
     'codex: usage limit reached',
     'muse: weekly limit',
     'grok: 401 unauthorized',
+    'grok: not authenticated',
+    'lovart: missing credentials',
     'codex: not logged in',
     'jimeng: please log in',
     'jimeng: AigcComplianceConfirmationRequired',
@@ -262,6 +264,90 @@ function run(cmd, args, env, cwd) {
     child.on('close', code => resolve({ code, stdout, stderr }));
   });
 }
+
+await checkAsync('batch explains missing engine setup and stays quiet when an engine works', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'batch-setup-'));
+  try {
+    const scripts = path.join(dir, 'scripts');
+    const jobs = path.join(dir, 'jobs.json');
+    await mkdir(scripts);
+    await writeFile(jobs, JSON.stringify([{ id: 'lemon', prompt: 'a lemon' }]));
+    const failures = {
+      'gemini-image.mjs': 'agy not found',
+      'jimeng-image.mjs': 'could not launch dreamina: Error: spawn dreamina ENOENT',
+      'codex-image.mjs': 'codex_not_installed',
+      'grok-image.mjs': 'spawn grok ENOENT',
+      'lovart.mjs': 'Lovart billing mode could not be verified. Check Lovart credentials and connectivity. (billing_mode_unknown)',
+      'muse-image.py': "Traceback (most recent call last):\n  from playwright.sync_api import sync_playwright\nModuleNotFoundError: No module named 'playwright'",
+    };
+    for (const [script, reason] of Object.entries(failures)) {
+      await writeFile(path.join(scripts, script), script.endsWith('.py')
+        ? 'import sys\nsys.exit(' + JSON.stringify(reason) + ')\n'
+        : 'console.error(' + JSON.stringify(reason) + '); process.exitCode = 1;');
+    }
+    const engines = ['gemini', 'jimeng', 'codex', 'grok', 'lovart', 'muse'];
+    const env = { HOME: dir, PYTHON: process.platform === 'win32' ? 'python' : 'python3',
+      IMAGE_GEN_API_CONFIG: path.join(dir, 'no-api.json'), IMAGE_GEN_ENGINE_OFF: path.join(dir, 'off'),
+      IMAGE_GEN_TEST_SCRIPTS: 'yes', IMAGE_GEN_SCRIPT_DIR: scripts };
+    const batch = (name, selected = engines, overrides = {}) => run(process.execPath, [path.join(here, 'batch.mjs'),
+      '--jobs', jobs, '--out', path.join(dir, name), '--engines', selected.join(','),
+      '--lanes', selected.map(engine => engine + '=1').join(',')], { ...env, ...overrides });
+    const unavailable = await batch('unavailable');
+    assert.equal(unavailable.code, 1);
+    const events = unavailable.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(events.at(-1).status, 'setup_needed');
+    assert.equal(events.at(-1).done, 0);
+    assert.equal(events.at(-1).failed, 1);
+    const lines = unavailable.stderr.trim().split('\n');
+    assert.deepEqual(lines, [
+      'No selected engine could run:',
+      '  gemini: missing CLI or runtime',
+      '  jimeng: missing CLI or runtime',
+      '  codex: missing CLI or runtime',
+      '  grok: missing CLI or runtime',
+      '  lovart: missing login or credentials',
+      '  muse: missing CLI or runtime (Playwright not found)',
+      'See SETUP.md for installation and sign-in instructions.',
+    ]);
+    const saved = await readFile(path.join(dir, 'unavailable', 'batch-results.json'), 'utf8');
+    assert.doesNotMatch(unavailable.stdout + unavailable.stderr + saved, /Traceback|ModuleNotFoundError/);
+    assert.match(saved, /Playwright not found/);
+
+    const noPython = await batch('no-python', ['muse'], { PYTHON: path.join(dir, 'missing-python') });
+    assert.equal(noPython.code, 1);
+    assert.match(noPython.stderr, /muse: missing CLI or runtime/);
+    const noPythonEvents = noPython.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(noPythonEvents.at(-1).status, 'setup_needed');
+    assert.match(noPythonEvents.at(-1).engines_down.muse, /Python runtime not installed/);
+
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC';
+    await writeFile(path.join(scripts, 'grok-image.mjs'), [
+      "import { writeFileSync } from 'node:fs';",
+      'writeFileSync(process.argv[process.argv.indexOf("--out") + 1], Buffer.from(' + JSON.stringify(png) + ', "base64"));',
+      'console.log(JSON.stringify({ status: "ok" }));',
+    ].join('\n'));
+    const available = await batch('available');
+    assert.equal(available.code, 0);
+    assert.equal(available.stderr, '');
+    const summary = available.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1);
+    assert.equal(summary.status, 'ok');
+    assert.equal(summary.done, 1);
+    assert.deepEqual(await readFile(path.join(dir, 'available', 'lemon.png')), Buffer.from(png, 'base64'));
+
+    for (const reason of ['quota exhausted', 'content policy refusal']) {
+      await writeFile(path.join(scripts, 'grok-image.mjs'),
+        'console.error(' + JSON.stringify(reason) + '); process.exitCode = 1;');
+      const generationFailure = await batch(reason, ['gemini', 'grok']);
+      assert.equal(generationFailure.code, 1);
+      assert.equal(generationFailure.stderr, '');
+      const events = generationFailure.stdout.trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(events.at(-1).status, 'partial');
+      assert.ok(events.some(event => event.reason?.includes(reason)));
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 async function hintBatch(dir, document, args = []) {
   const scripts = path.join(dir, 'scripts');
